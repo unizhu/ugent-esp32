@@ -25,8 +25,8 @@
 #define LV_COLOR_DEPTH 16
 
 /* Swap the 2 bytes of RGB565 color (useful for SPI displays) */
-/* MUST be 1 for ESP32-2432S028R — ILI9341 SPI needs byte swap for correct colors */
-#define LV_COLOR_16_SWAP 1
+/* MUST be 0 for ESP32-2432S028R — TFT_eSPI pushColors(...,true) handles byte swap */
+#define LV_COLOR_16_SWAP 0
 
 /* Enable more complex drawing routines for screen transparency */
 #define LV_COLOR_SCREEN_TRANSP 0

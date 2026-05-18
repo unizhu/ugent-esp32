@@ -2,9 +2,12 @@
  * UGENT ESP32 Monitor — Configuration
  *
  * Hardware: ESP32-2432S028R (2.8" 320x240 ILI9341 + XPT2046)
- * Framework: Arduino + LVGL 8.x + TFT_eSPI + TFT_Touch
+ * Framework: Arduino + LVGL 8.x + TFT_eSPI
  *
  * IMPORTANT: The display (ILI9341) and touch (XPT2046) are on
+ * SEPARATE SPI buses. TFT_eSPI handles the display SPI (HSPI),
+ * touch uses raw hardware SPI (VSPI) — no TFT_Touch library needed.
+ * * IMPORTANT: The display (ILI9341) and touch (XPT2046) are on
  * SEPARATE SPI buses. TFT_eSPI handles the display SPI,
  * TFT_Touch handles the touch SPI with its own pin definitions.
  */
@@ -35,21 +38,25 @@
 // Listed for reference only:
 //   TFT_MOSI=13, TFT_SCLK=14, TFT_CS=15, TFT_DC=2, TFT_RST=12, TFT_BL=21
 
-// Touch (XPT2046) SPI pins — on a SEPARATE SPI bus from display
-// Used by TFT_Touch library directly
+// Touch SPI pins — on a SEPARATE SPI bus (VSPI) from display (HSPI)
+// Uses raw SPIClass hardware SPI — no TFT_Touch library needed
+// (TFT_Touch uses slow bit-banged GPIO that causes display flickering)
 #define TOUCH_DOUT 39   // MISO (data from touch controller)
 #define TOUCH_DIN  32   // MOSI (data to touch controller)
 #define TOUCH_CS   33   // Chip select
-#define TOUCH_CLK  25   // Clock
-#define TOUCH_IRQ  36   // IRQ pin (36 on most boards, 255 if unused)
+#define TOUCH_CLK  25   // Clock#define TOUCH_IRQ  36   // IRQ pin (36 on most boards, 255 if unused)
 
 // Touch calibration for TFT_Touch setCal() format
 // Vendor example: touch.setCal(526, 3443, 750, 3377, 320, 240, 1)
+// Touch calibration values from vendor example:
+// touch.setCal(526, 3443, 750, 3377, 320, 240, 1)
+// These map raw XPT2046 ADC readings to screen coordinates.
+// The 7th param (axisSwap=1) means X↔Y are swapped in landscape mode,
+// which our touch_read() handles by mapping rawY→screenX, rawX→screenY.
 #define TOUCH_CAL_XMIN  526
 #define TOUCH_CAL_XMAX  3443
 #define TOUCH_CAL_YMIN  750
 #define TOUCH_CAL_YMAX  3377
-#define TOUCH_AXIS_SWAP 1     // 1 = swap X/Y axes (landscape orientation)
 
 // Backlight PWM (GPIO 21 on ESP32-2432S028R)
 #define LCD_BL_PIN            21
