@@ -107,13 +107,13 @@ Open **Sketch > Include Library > Manage Libraries...** and install:
 
 | Library | Author | Version | Notes |
 |---------|--------|---------|-------|
-| **TFT_eSPI** | Bodmer | latest | TFT display driver |
+| **TFT_eSPI** | Bodmer | latest | TFT display driver + built-in XPT2046 touch |
 | **lvgl** | LVGL | **8.x** (NOT 9.x) | UI framework — must use v8 |
-| **TFT_Touch** | Bodmer | latest | XPT2046 touch driver — install from [GitHub](https://github.com/Bodmer/TFT_Touch) || **ArduinoJson** | Benoit Blanchon | 7.x | JSON parsing |
+| **ArduinoJson** | Benoit Blanchon | 7.x | JSON parsing |
 
 > **Important:** LVGL 9.x has a completely different API. You MUST install LVGL 8.x. In Library Manager, search "lvgl", click the version dropdown, and select the latest 8.x release (e.g., 8.4.0).
 >
-> The **TFT_Touch** library is NOT available in Library Manager. Download it manually from [https://github.com/Bodmer/TFT_Touch](https://github.com/Bodmer/TFT_Touch) — either clone it or download as ZIP and install via **Sketch > Include Library > Add .ZIP Library...**.
+> **No external touch library needed.** The firmware uses TFT_eSPI's built-in XPT2046 touch support (`tft.getTouch()`). The touch SPI pins are configured in `User_Setup.h`.
 
 ### Step 4 — Configure TFT_eSPI (User_Setup.h)
 
@@ -506,8 +506,8 @@ Ensure your UGENT server has the **channel-web** plugin enabled and is accessibl
 ### Touch Not Working
 
 - Verify XPT2046 SPI pin connections match `config.h`
-- Try recalibrating: modify `TOUCH_CAL_0` through `TOUCH_CAL_3` values in `config.h`
-- Check `TOUCH_IRQ_PIN` — some board variants do not connect the IRQ pin (set to `255` if unused)
+- Try recalibrating: modify `TOUCH_CAL_XMIN/XMAX/YMIN/YMAX` values in `config.h`
+- Ensure touch SPI pins are correctly set in `User_Setup.h` (TOUCH_CS=33, TOUCH_MOSI=32, etc.)
 
 ### WiFi Won't Connect
 

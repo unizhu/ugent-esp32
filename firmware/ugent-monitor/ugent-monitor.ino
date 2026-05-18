@@ -8,7 +8,7 @@
 #include <Arduino.h>
 #include <lvgl.h>
 #include <TFT_eSPI.h>
-#include <TFT_Touch.h>
+// Touch: using TFT_eSPI built-in XPT2046 support (no external TFT_Touch library needed)
 #include <WiFi.h>
 
 #include "config.h"
@@ -21,7 +21,6 @@
 // ─── Globals ───────────────────────────────────────────────────────────────────
 
 static TFT_eSPI    tft;
-static TFT_Touch   touch(TOUCH_CS_PIN, TOUCH_IRQ_PIN);
 static NvsStorage  nvs;
 static WifiManager wifi;
 static UgentClient ugent;
@@ -51,21 +50,16 @@ static void disp_flush(lv_disp_drv_t* drv, const lv_area_t* area, lv_color_t* co
 // ─── Touch Read ─────────────────────────────────────────────────────────────────
 
 static void touch_read(lv_indev_drv_t* drv, lv_indev_data_t* data) {
-    bool touched = touch.Pressed();
+    uint16_t x = 0, y = 0;
+    bool touched = tft.getTouch(&x, &y) > 0;
     if (!touched) {
         data->state = LV_INDEV_STATE_REL;
         return;
     }
 
-    uint16_t x, y;
-    touch.ReadRaw();
-    touch.Read();
-    x = touch.X();
-    y = touch.Y();
-
-    // Calibration and bounds check
-    if (x > SCREEN_WIDTH) x = SCREEN_WIDTH;
-    if (y > SCREEN_HEIGHT) y = SCREEN_HEIGHT;
+    // Bounds check
+    if (x > SCREEN_WIDTH - 1) x = SCREEN_WIDTH - 1;
+    if (y > SCREEN_HEIGHT - 1) y = SCREEN_HEIGHT - 1;
 
     data->point.x = x;
     data->point.y = y;
@@ -84,10 +78,13 @@ static bool init_hardware() {
     tft.setRotation(ROTATION);
     tft.fillScreen(TFT_BLACK);
 
-    // Touch init with calibration
-    touch.begin();
-    touch.setCal(TOUCH_CAL_0, TOUCH_CAL_1, TOUCH_CAL_2, TOUCH_CAL_3,
-                 SCREEN_WIDTH, SCREEN_HEIGHT, 1);
+    // Touch init — TFT_eSPI built-in XPT2046 support
+    // Calibration data from vendor examples (set in config.h)
+    // Format: {xMin, xMax, yMin, yMax}
+    static constexpr uint16_t calData[] = {
+        TOUCH_CAL_XMIN, TOUCH_CAL_XMAX, TOUCH_CAL_YMIN, TOUCH_CAL_YMAX
+    };
+    tft.setTouch(calData);
 
     // Backlight PWM (compatible with ESP32 Core 2.x and 3.x)
     ugent_ledc_init(LCD_BL_PIN, BACKLIGHT_PWM_CHANNEL,

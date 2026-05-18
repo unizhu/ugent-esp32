@@ -41,15 +41,19 @@
 #define TOUCH_CLK  25
 #define TOUCH_IRQ  36   // IRQ pin (not connected on all boards, use 255 if unused)
 
-// Aliases used by main .ino (TFT_Touch library convention)
-#define TOUCH_CS_PIN  TOUCH_CS
-#define TOUCH_IRQ_PIN TOUCH_IRQ
+// Note: Touch SPI pins are configured in TFT_eSPI's User_Setup.h
+// The TFT_Touch library is NO LONGER needed — touch uses TFT_eSPI built-in support
 
-// Touch calibration (from vendor LVGL example)
-#define TOUCH_CAL_0   526
-#define TOUCH_CAL_1  3443
-#define TOUCH_CAL_2   750
-#define TOUCH_CAL_3  3377
+// Touch calibration for TFT_eSPI setTouch() format
+// {xMin, xMax, yMin, yMax} — from vendor LVGL example
+// Original: touch.setCal(526, 3443, 750, 3377, 320, 240, 1)
+#define TOUCH_CAL_XMIN  526
+#define TOUCH_CAL_XMAX  3443
+#define TOUCH_CAL_YMIN  750
+#define TOUCH_CAL_YMAX  3377
+
+// Touch SPI frequency
+#define TOUCH_SPI_FREQUENCY 2500000
 
 // Display rotation: 1 = landscape (320x240)
 #define TFT_ROTATION 1
