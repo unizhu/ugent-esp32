@@ -192,7 +192,7 @@ private:
         return url;
     }
 
-    void parseStatus(const JsonDocument& doc) {
+    void parseStatus(JsonDocument& doc) {
         // Version
         const char* ver = doc["version"] | "unknown";
         strncpy(status_.version, ver, MAX_VERSION_LEN - 1);

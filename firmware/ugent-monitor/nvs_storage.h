@@ -88,7 +88,7 @@ public:
     }
 
 private:
-    Preferences prefs_;
+    mutable Preferences prefs_;
 };
 
 #endif // NVS_STORAGE_H

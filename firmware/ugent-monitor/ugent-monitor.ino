@@ -24,7 +24,7 @@ static TFT_eSPI    tft;
 static NvsStorage  nvs;
 static WifiManager wifi;
 static UgentClient ugent;
-static SSEClient   sse;
+static SseClient   sse;
 static UIManager   ui;
 
 // LVGL display/touch driver buffers
@@ -81,7 +81,7 @@ static bool init_hardware() {
     // Touch init — TFT_eSPI built-in XPT2046 support
     // Calibration data from vendor examples (set in config.h)
     // Format: {xMin, xMax, yMin, yMax}
-    static constexpr uint16_t calData[] = {
+    static uint16_t calData[] = {
         TOUCH_CAL_XMIN, TOUCH_CAL_XMAX, TOUCH_CAL_YMIN, TOUCH_CAL_YMAX
     };
     tft.setTouch(calData);

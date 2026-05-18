@@ -57,7 +57,7 @@ inline void screen_tasks_create(lv_obj_t* parent) {
     lv_obj_set_style_border_width(tasks_list_cont, 0, LV_PART_MAIN);
     lv_obj_set_style_pad_all(tasks_list_cont, 4, LV_PART_MAIN);
     lv_obj_set_flex_flow(tasks_list_cont, LV_FLEX_FLOW_COLUMN);
-    lv_obj_set_flex_gap(tasks_list_cont, 4);
+    lv_obj_set_style_pad_row(tasks_list_cont, 4, LV_PART_MAIN);
     lv_obj_add_flag(tasks_list_cont, LV_OBJ_FLAG_SCROLLABLE);
 }
 

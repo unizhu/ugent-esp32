@@ -66,7 +66,7 @@ inline void screen_dashboard_create(lv_obj_t* parent) {
 
     // Connection status dot
     dash_conn_icon = lv_label_create(header);
-    lv_label_set_text(dash_conn_icon, LV_SYMBOL_CIRCLE);
+    lv_label_set_text(dash_conn_icon, LV_SYMBOL_BULLET);
     lv_obj_set_style_text_color(dash_conn_icon, color_red(), LV_PART_MAIN);
     lv_obj_align(dash_conn_icon, LV_ALIGN_RIGHT_MID, -24, 0);
 

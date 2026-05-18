@@ -180,7 +180,7 @@ inline void screen_interact_create(lv_obj_t* parent) {
     lv_obj_set_style_border_width(interact_history, 0, LV_PART_MAIN);
     lv_obj_set_style_pad_all(interact_history, 4, LV_PART_MAIN);
     lv_obj_set_flex_flow(interact_history, LV_FLEX_FLOW_COLUMN);
-    lv_obj_set_flex_gap(interact_history, 2);
+    lv_obj_set_style_pad_row(interact_history, 2, LV_PART_MAIN);
     lv_obj_add_flag(interact_history, LV_OBJ_FLAG_SCROLLABLE);
 }
 
