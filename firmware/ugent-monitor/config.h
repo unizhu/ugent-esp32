@@ -37,7 +37,8 @@
 
 // Touch SPI pins — on VSPI bus (SPI3), separate from display HSPI (SPI2)
 // Uses raw SPIClass(VSPI) hardware SPI — no TFT_Touch library needed
-// (TFT_Touch uses slow bit-banged GPIO that causes display flickering)#define TOUCH_DOUT 39   // MISO (data from touch controller)
+// (TFT_Touch uses slow bit-banged GPIO that causes display flickering)
+#define TOUCH_DOUT 39   // MISO (data from touch controller)
 #define TOUCH_DIN  32   // MOSI (data to touch controller)
 #define TOUCH_CS   33   // Chip select
 #define TOUCH_CLK  25   // Clock
