@@ -25,7 +25,8 @@
 #define LV_COLOR_DEPTH 16
 
 /* Swap the 2 bytes of RGB565 color (useful for SPI displays) */
-#define LV_COLOR_16_SWAP 0
+/* MUST be 1 for ESP32-2432S028R — ILI9341 SPI needs byte swap for correct colors */
+#define LV_COLOR_16_SWAP 1
 
 /* Enable more complex drawing routines for screen transparency */
 #define LV_COLOR_SCREEN_TRANSP 0
@@ -40,11 +41,11 @@
 
 /* ==================== HAL SETTINGS ==================== */
 
-/* Default display refresh period (ms) */
-#define LV_DISP_DEF_REFR_PERIOD 30
+/* Default display refresh period (ms) — 20ms for smoother rendering */
+#define LV_DISP_DEF_REFR_PERIOD 20
 
-/* Input device read period (ms) */
-#define LV_INDEV_DEF_READ_PERIOD 30
+/* Input device read period (ms) — 20ms for responsive touch */
+#define LV_INDEV_DEF_READ_PERIOD 20
 
 /* Use a custom tick source (Arduino millis()) */
 #define LV_TICK_CUSTOM 1

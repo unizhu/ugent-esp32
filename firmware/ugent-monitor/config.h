@@ -2,7 +2,11 @@
  * UGENT ESP32 Monitor — Configuration
  *
  * Hardware: ESP32-2432S028R (2.8" 320x240 ILI9341 + XPT2046)
- * Framework: Arduino + LVGL 8.x + TFT_eSPI
+ * Framework: Arduino + LVGL 8.x + TFT_eSPI + TFT_Touch
+ *
+ * IMPORTANT: The display (ILI9341) and touch (XPT2046) are on
+ * SEPARATE SPI buses. TFT_eSPI handles the display SPI,
+ * TFT_Touch handles the touch SPI with its own pin definitions.
  */
 
 #ifndef CONFIG_H
@@ -19,45 +23,33 @@
 #endif
 
 // ─── Firmware ────────────────────────────────────────────────────────────────
-#define FIRMWARE_VERSION "1.0.0"
+#define FIRMWARE_VERSION "1.1.0"
 #define FIRMWARE_NAME    "UGENT Monitor"
 
 // ─── Display ─────────────────────────────────────────────────────────────────
 #define SCREEN_WIDTH  320
 #define SCREEN_HEIGHT 240
 
-// TFT (ILI9341) SPI pins — matches User_Setup.h from vendor
-#define TFT_MOSI  13
-#define TFT_SCLK  14
-#define TFT_CS    15
-#define TFT_DC     2
-#define TFT_RST   12
-#define TFT_BL    21
+// TFT (ILI9341) SPI pins — matches vendor User_Setup.h
+// These are configured in TFT_eSPI's User_Setup.h, NOT here.
+// Listed for reference only:
+//   TFT_MOSI=13, TFT_SCLK=14, TFT_CS=15, TFT_DC=2, TFT_RST=12, TFT_BL=21
 
-// Touch (XPT2046) SPI pins
-#define TOUCH_DOUT 39   // MISO
-#define TOUCH_DIN  32   // MOSI
-#define TOUCH_CS   33
-#define TOUCH_CLK  25
-#define TOUCH_IRQ  36   // IRQ pin (not connected on all boards, use 255 if unused)
+// Touch (XPT2046) SPI pins — on a SEPARATE SPI bus from display
+// Used by TFT_Touch library directly
+#define TOUCH_DOUT 39   // MISO (data from touch controller)
+#define TOUCH_DIN  32   // MOSI (data to touch controller)
+#define TOUCH_CS   33   // Chip select
+#define TOUCH_CLK  25   // Clock
+#define TOUCH_IRQ  36   // IRQ pin (36 on most boards, 255 if unused)
 
-// Note: Touch SPI pins are configured in TFT_eSPI's User_Setup.h
-// The TFT_Touch library is NO LONGER needed — touch uses TFT_eSPI built-in support
-
-// Touch calibration for TFT_eSPI setTouch() format
-// {xMin, xMax, yMin, yMax} — from vendor LVGL example
-// Original: touch.setCal(526, 3443, 750, 3377, 320, 240, 1)
+// Touch calibration for TFT_Touch setCal() format
+// Vendor example: touch.setCal(526, 3443, 750, 3377, 320, 240, 1)
 #define TOUCH_CAL_XMIN  526
 #define TOUCH_CAL_XMAX  3443
 #define TOUCH_CAL_YMIN  750
 #define TOUCH_CAL_YMAX  3377
-
-// Touch SPI frequency
-#define TOUCH_SPI_FREQUENCY 2500000
-
-// Display rotation: 1 = landscape (320x240)
-#define TFT_ROTATION 1
-#define ROTATION    TFT_ROTATION  // Alias used by main .ino
+#define TOUCH_AXIS_SWAP 1     // 1 = swap X/Y axes (landscape orientation)
 
 // Backlight PWM (GPIO 21 on ESP32-2432S028R)
 #define LCD_BL_PIN            21
@@ -89,9 +81,14 @@ static inline void ugent_ledc_write(uint8_t pin, uint8_t channel, uint32_t duty)
 #endif
 }
 
-// LVGL draw buffer size (in pixels) — use partial buffer to save RAM
-// screenWidth * 10 as per vendor example
+// LVGL draw buffer size (in pixels)
+// 10 lines × 320 pixels with double buffering for flicker-free rendering
 #define LVGL_BUF_SIZE (SCREEN_WIDTH * 10)
+
+// ─── Display rotation ─────────────────────────────────────────────────────────
+// Rotation 1 = landscape (320×240)
+#define TFT_ROTATION 1
+#define ROTATION    TFT_ROTATION  // Alias used by main .ino
 
 // ─── NVS Storage Keys ────────────────────────────────────────────────────────
 #define NVS_NAMESPACE "ugent"
@@ -147,18 +144,17 @@ static inline void ugent_ledc_write(uint8_t pin, uint8_t channel, uint32_t duty)
 #define MAX_WIFI_NETWORKS      15
 
 // ─── UI Theme Colors (Catppuccin Mocha-inspired dark theme) ───────────────────
-// Using RGB565 format for LVGL
-// Base: #1e1e2e → RGB565
+// Using lv_color_hex() in ui_theme.h — these RGB565 defines are for reference
 #define COLOR_BG           0x18E5   // Base (dark blue-gray)
 #define COLOR_SURFACE0     0x2108   // Surface0 (slightly lighter)
 #define COLOR_SURFACE1     0x294A   // Surface1
 #define COLOR_OVERLAY0     0x318C   // Overlay0
 #define COLOR_TEXT          0xFFFF   // Text (white)
 #define COLOR_SUBTEXT      0xB5B6   // Subtext1 (light gray)
-#define COLOR_ACCENT       0x049F   // Blue accent (#89b4fa → RGB565)
-#define COLOR_ACCENT_GREEN 0x07E4   // Green (#a6e3a1)
-#define COLOR_ACCENT_RED   0xF455   // Red (#f38ba8 → RGB565)
-#define COLOR_ACCENT_YELLOW 0xADA0  // Yellow (#f9e2af)
+#define COLOR_ACCENT       0x049F   // Blue accent
+#define COLOR_ACCENT_GREEN 0x07E4   // Green
+#define COLOR_ACCENT_RED   0xF455   // Red
+#define COLOR_ACCENT_YELLOW 0xADA0  // Yellow
 #define COLOR_RUNNING      0x07E4   // Green for running status
 #define COLOR_COMPLETED    0x049F   // Blue for completed
 #define COLOR_FAILED       0xF800   // Red for failed

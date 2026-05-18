@@ -3,12 +3,18 @@
  *
  * Firmware for ESP32-2432S028R (2.8" TFT + Touch)
  * Displays UGENT agent status, tasks, and enables human-in-the-loop interaction.
+ *
+ * HARDWARE NOTES:
+ *   Display (ILI9341) and Touch (XPT2046) are on SEPARATE SPI buses.
+ *   - Display SPI: MOSI=13, SCLK=14, CS=15, DC=2, RST=12
+ *   - Touch SPI:   DOUT(MISO)=39, DIN(MOSI)=32, CS=33, CLK=25
+ *   We use TFT_eSPI for display and TFT_Touch for touch input.
  */
 
 #include <Arduino.h>
 #include <lvgl.h>
 #include <TFT_eSPI.h>
-// Touch: using TFT_eSPI built-in XPT2046 support (no external TFT_Touch library needed)
+#include <TFT_Touch.h>
 #include <WiFi.h>
 
 #include "config.h"
@@ -29,8 +35,13 @@ static UIManager   ui;
 
 // LVGL display/touch driver buffers
 static lv_disp_draw_buf_t draw_buf;
-static lv_color_t* buf1 = nullptr;  // Heap-allocated to save DRAM
+static lv_color_t* buf1 = nullptr;
+static lv_color_t* buf2 = nullptr;  // Double buffer for flicker-free rendering
 static lv_indev_drv_t indev_drv;
+
+// Touch controller on SEPARATE SPI bus (not shared with display)
+// Pins: CS=33, CLK=25, DIN(MOSI)=32, DOUT(MISO)=39
+static TFT_Touch touch(TOUCH_CS, TOUCH_CLK, TOUCH_DIN, TOUCH_DOUT);
 
 // Backlight PWM
 static uint8_t currentBrightness = 128;
@@ -42,7 +53,8 @@ static void disp_flush(lv_disp_drv_t* drv, const lv_area_t* area, lv_color_t* co
     uint32_t h = area->y2 - area->y1 + 1;
     tft.startWrite();
     tft.setAddrWindow(area->x1, area->y1, w, h);
-    tft.pushColors((uint16_t*)color_p, w * h, true);
+    // Use false for byteSwap — LV_COLOR_16_SWAP handles it in lv_conf.h
+    tft.pushColors((uint16_t*)color_p, w * h, false);
     tft.endWrite();
     lv_disp_flush_ready(drv);
 }
@@ -50,19 +62,21 @@ static void disp_flush(lv_disp_drv_t* drv, const lv_area_t* area, lv_color_t* co
 // ─── Touch Read ─────────────────────────────────────────────────────────────────
 
 static void touch_read(lv_indev_drv_t* drv, lv_indev_data_t* data) {
-    uint16_t x = 0, y = 0;
-    bool touched = tft.getTouch(&x, &y) > 0;
+    bool touched = touch.Pressed();
     if (!touched) {
         data->state = LV_INDEV_STATE_REL;
         return;
     }
 
-    // Bounds check
-    if (x > SCREEN_WIDTH - 1) x = SCREEN_WIDTH - 1;
-    if (y > SCREEN_HEIGHT - 1) y = SCREEN_HEIGHT - 1;
+    uint16_t touchX = touch.X();
+    uint16_t touchY = touch.Y();
 
-    data->point.x = x;
-    data->point.y = y;
+    // Bounds check
+    if (touchX > SCREEN_WIDTH - 1) touchX = SCREEN_WIDTH - 1;
+    if (touchY > SCREEN_HEIGHT - 1) touchY = SCREEN_HEIGHT - 1;
+
+    data->point.x = touchX;
+    data->point.y = touchY;
     data->state = LV_INDEV_STATE_PR;
 }
 
@@ -78,13 +92,10 @@ static bool init_hardware() {
     tft.setRotation(ROTATION);
     tft.fillScreen(TFT_BLACK);
 
-    // Touch init — TFT_eSPI built-in XPT2046 support
-    // Calibration data from vendor examples (set in config.h)
-    // Format: {xMin, xMax, yMin, yMax}
-    static uint16_t calData[] = {
-        TOUCH_CAL_XMIN, TOUCH_CAL_XMAX, TOUCH_CAL_YMIN, TOUCH_CAL_YMAX
-    };
-    tft.setTouch(calData);
+    // Touch init using TFT_Touch library with calibration from vendor example
+    // setCal(xMin, xMax, yMin, yMax, xRes, yRes, axisSwap)
+    touch.setCal(TOUCH_CAL_XMIN, TOUCH_CAL_XMAX, TOUCH_CAL_YMIN, TOUCH_CAL_YMAX,
+                 SCREEN_WIDTH, SCREEN_HEIGHT, TOUCH_AXIS_SWAP);
 
     // Backlight PWM (compatible with ESP32 Core 2.x and 3.x)
     ugent_ledc_init(LCD_BL_PIN, BACKLIGHT_PWM_CHANNEL,
@@ -102,14 +113,21 @@ static bool init_hardware() {
 static bool init_lvgl() {
     lv_init();
 
-    // Allocate draw buffer on heap to save DRAM (ESP32-2432S028R has no PSRAM)
-    // Use SCREEN_WIDTH * 5 lines — sufficient for 320x240 display
-    buf1 = (lv_color_t*)malloc(SCREEN_WIDTH * 5 * sizeof(lv_color_t));
+    // Double-buffered draw buffer for flicker-free rendering
+    // Use SCREEN_WIDTH * 10 lines per buffer
+    uint32_t buf_size = SCREEN_WIDTH * 10;
+    buf1 = (lv_color_t*)malloc(buf_size * sizeof(lv_color_t));
+    buf2 = (lv_color_t*)malloc(buf_size * sizeof(lv_color_t));
     if (!buf1) {
-        Serial.println("[UGENT] FAIL: LVGL draw buf alloc");
+        Serial.println("[UGENT] FAIL: LVGL draw buf1 alloc");
         return false;
     }
-    lv_disp_draw_buf_init(&draw_buf, buf1, nullptr, SCREEN_WIDTH * 5);
+    if (!buf2) {
+        Serial.println("[UGENT] WARN: No buf2, single-buffer mode");
+        lv_disp_draw_buf_init(&draw_buf, buf1, nullptr, buf_size);
+    } else {
+        lv_disp_draw_buf_init(&draw_buf, buf1, buf2, buf_size);
+    }
 
     static lv_disp_drv_t disp_drv;
     lv_disp_drv_init(&disp_drv);

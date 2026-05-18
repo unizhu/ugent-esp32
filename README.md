@@ -13,6 +13,13 @@ The UGENT ESP32 Monitor connects to your UGENT server via WiFi and displays:
 
 Communication uses HTTP polling (5s interval) with SSE (Server-Sent Events) for real-time event streaming.
 
+### v1.1.0 Changes
+
+- **Fixed touch input** — switched from TFT_eSPI's `getTouch()` (broken on this board) to `TFT_Touch` library using the correct separate SPI bus
+- **Fixed colors** — enabled `LV_COLOR_16_SWAP` in `lv_conf.h` (ILI9341 SPI requires byte-swap for correct RGB565)
+- **Fixed flickering** — added double-buffered draw buffer (320×10 × 2), reduced refresh period to 20ms
+- **Updated TFT_eSPI config** — removed `TOUCH_CS` from `User_Setup.h` (touch uses separate SPI via TFT_Touch)
+
 ## Hardware
 
 ### Required Board
@@ -107,13 +114,16 @@ Open **Sketch > Include Library > Manage Libraries...** and install:
 
 | Library | Author | Version | Notes |
 |---------|--------|---------|-------|
-| **TFT_eSPI** | Bodmer | latest | TFT display driver + built-in XPT2046 touch |
+| **TFT_eSPI** | Bodmer | latest | TFT display driver for ILI9341 |
+| **TFT_Touch** | Bodmer | latest (v1.4.1+) | XPT2046 touch controller (separate SPI bus) |
 | **lvgl** | LVGL | **8.x** (NOT 9.x) | UI framework — must use v8 |
 | **ArduinoJson** | Benoit Blanchon | 7.x | JSON parsing |
 
 > **Important:** LVGL 9.x has a completely different API. You MUST install LVGL 8.x. In Library Manager, search "lvgl", click the version dropdown, and select the latest 8.x release (e.g., 8.4.0).
 >
-> **No external touch library needed.** The firmware uses TFT_eSPI's built-in XPT2046 touch support (`tft.getTouch()`). The touch SPI pins are configured in `User_Setup.h`.
+> **TFT_Touch library is required.** The ESP32-2432S028R uses a **separate SPI bus** for the XPT2046 touch controller (pins 39/32/33/25), different from the display SPI. TFT_eSPI's built-in `getTouch()` does NOT work because it expects touch on the same SPI bus as the display. Install TFT_Touch from [GitHub](https://github.com/Bodmer/TFT_Touch) — download ZIP and add via Sketch > Include Library > Add .ZIP Library.
+>
+> The vendor example also uses TFT_Touch: `touch.setCal(526, 3443, 750, 3377, 320, 240, 1)`.
 
 ### Step 4 — Configure TFT_eSPI (User_Setup.h)
 
@@ -134,10 +144,10 @@ Replace the file `User_Setup.h` in the TFT_eSPI library folder with the followin
 
 #define USER_SETUP_INFO "ESP32-2432S028R"
 
-// Display driver
-#define ILI9341_DRIVER
+// Display driver — use ILI9341_2_DRIVER for better compatibility
+#define ILI9341_2_DRIVER
 
-// TFT SPI pins
+// Display SPI pins
 #define TFT_MOSI  13
 #define TFT_SCLK  14
 #define TFT_CS    15
@@ -145,11 +155,12 @@ Replace the file `User_Setup.h` in the TFT_eSPI library folder with the followin
 #define TFT_RST   12
 #define TFT_BL    21
 
-// Touch SPI pins (separate SPI bus)
-#define TOUCH_MOSI 32
-#define TOUCH_MISO 39
-#define TOUCH_CLK  25
-#define TOUCH_CS   33
+// Backlight
+#define TFT_BACKLIGHT_ON HIGH
+
+// NOTE: Do NOT define TOUCH_CS here!
+// The XPT2046 touch is on a SEPARATE SPI bus and is handled
+// by the TFT_Touch library (not TFT_eSPI's built-in touch).
 
 // Fonts
 #define LOAD_GLCD
@@ -163,8 +174,9 @@ Replace the file `User_Setup.h` in the TFT_eSPI library folder with the followin
 // SPI frequency
 #define SPI_FREQUENCY       40000000
 #define SPI_READ_FREQUENCY  20000000
-#define TOUCH_SPI_FREQUENCY  2500000
 ```
+
+> **Note:** We do NOT define `TOUCH_CS`, `TOUCH_MOSI`, `TOUCH_MISO`, or `TOUCH_CLK` in TFT_eSPI's `User_Setup.h`. The touch controller is handled entirely by the TFT_Touch library using its own separate SPI bus (configured in `config.h`).
 
 **Option B — Use the vendor's User_Setup.h**
 
@@ -231,7 +243,7 @@ The reason: LVGL's `lv_conf_internal.h` resolves `../../lv_conf.h` relative to i
 | Setting | Value |
 |---------|-------|
 | **Board** | ESP32 Dev Module |
-| **Upload Speed** | 921600 |
+| **Upload Speed** | 460800 or 921600 |
 | **CPU Frequency** | 240MHz (WiFi/BT) |
 | **Flash Frequency** | 80MHz |
 | **Flash Mode** | QIO |
@@ -505,9 +517,12 @@ Ensure your UGENT server has the **channel-web** plugin enabled and is accessibl
 
 ### Touch Not Working
 
-- Verify XPT2046 SPI pin connections match `config.h`
+- **You MUST install the TFT_Touch library** — TFT_eSPI's built-in `getTouch()` does NOT work on this board because touch is on a separate SPI bus
+- Install TFT_Touch: download ZIP from [GitHub](https://github.com/Bodmer/TFT_Touch) and add via Sketch > Include Library > Add .ZIP Library
+- Do NOT define `TOUCH_CS` in TFT_eSPI's `User_Setup.h` — this confuses TFT_eSPI into thinking touch shares the display SPI
+- Verify touch SPI pin definitions in `config.h`: TOUCH_CS=33, TOUCH_CLK=25, TOUCH_DIN=32, TOUCH_DOUT=39
 - Try recalibrating: modify `TOUCH_CAL_XMIN/XMAX/YMIN/YMAX` values in `config.h`
-- Ensure touch SPI pins are correctly set in `User_Setup.h` (TOUCH_CS=33, TOUCH_MOSI=32, etc.)
+- The `TOUCH_AXIS_SWAP` value (currently 1) may need to be 0 depending on your board variant
 
 ### WiFi Won't Connect
 
@@ -516,9 +531,11 @@ Ensure your UGENT server has the **channel-web** plugin enabled and is accessibl
 - Use the Settings screen to re-enter credentials
 - Check Serial Monitor for detailed error messages
 
-### Display Shows Garbage
+### Display Shows Garbage / Wrong Colors
 
-- Verify `User_Setup.h` has `#define ILI9341_DRIVER`
+- **Black & white only / no colors:** Ensure `LV_COLOR_16_SWAP` is set to `1` in `lv_conf.h`. The ILI9341 over SPI requires byte-swapping for RGB565 colors to display correctly.
+- **Flashing / flickering:** The firmware uses double buffering (320×10 lines × 2 buffers). If still flickering, try reducing `LV_DISP_DEF_REFR_PERIOD` to `20` in `lv_conf.h`.
+- Verify `User_Setup.h` has `#define ILI9341_2_DRIVER` (or `ILI9341_DRIVER`)
 - Check SPI pin definitions match your board variant
 - Try lowering `SPI_FREQUENCY` in `User_Setup.h` to `20000000`
 
