@@ -109,10 +109,11 @@ Open **Sketch > Include Library > Manage Libraries...** and install:
 |---------|--------|---------|-------|
 | **TFT_eSPI** | Bodmer | latest | TFT display driver |
 | **lvgl** | LVGL | **8.x** (NOT 9.x) | UI framework — must use v8 |
-| **TFT_Touch** | Built-in | — | Touch driver (included with TFT_eSPI examples) |
-| **ArduinoJson** | Benoit Blanchon | 7.x | JSON parsing |
+| **TFT_Touch** | Bodmer | latest | XPT2046 touch driver — install from [GitHub](https://github.com/Bodmer/TFT_Touch) || **ArduinoJson** | Benoit Blanchon | 7.x | JSON parsing |
 
 > **Important:** LVGL 9.x has a completely different API. You MUST install LVGL 8.x. In Library Manager, search "lvgl", click the version dropdown, and select the latest 8.x release (e.g., 8.4.0).
+>
+> The **TFT_Touch** library is NOT available in Library Manager. Download it manually from [https://github.com/Bodmer/TFT_Touch](https://github.com/Bodmer/TFT_Touch) — either clone it or download as ZIP and install via **Sketch > Include Library > Add .ZIP Library...**.
 
 ### Step 4 — Configure TFT_eSPI (User_Setup.h)
 
@@ -171,35 +172,52 @@ The board vendor provides example files in the `2.8inch_ESP32-2432S028R/` direct
 
 ### Step 5 — Configure LVGL
 
-LVGL 8.x requires a configuration file `lv_conf.h`. When you install LVGL via Library Manager, a template file `lv_conf_template.h` is included.
+> **CRITICAL:** The `lv_conf.h` file must be placed **next to** the `lvgl` folder in your `libraries` directory — NOT inside it.
+>
+> This is the #1 cause of `lv_conf.h: No such file or directory` errors.
 
-1. Copy `lv_conf_template.h` to `lv_conf.h` (in the same LVGL library folder)
-2. Rename it to `lv_conf.h`
-3. Open `lv_conf.h` and set the following at the top:
+**A pre-configured `lv_conf.h` is included in this repo** at `firmware/lv_conf.h`.
 
-```c
-#define LV_CONF_H
+**Option A — Use the pre-configured file (Recommended)**
 
-#if 1 /* Set to 1 to enable content */
+Copy the included `lv_conf.h` to your Arduino libraries folder:
+
+```bash
+# macOS
+cp ugent-esp32/firmware/lv_conf.h ~/Documents/Arduino/libraries/lv_conf.h
+
+# Windows (PowerShell)
+copy ugent-esp32\firmware\lv_conf.h "%USERPROFILE%\Documents\Arduino\libraries\lv_conf.h"
 ```
 
-The `#if 1` is critical — it must be `1`, not `0`.
+**Option B — Create manually from template**
 
-Key settings to adjust in `lv_conf.h`:
+1. Find `lv_conf_template.h` inside the lvgl library folder
+2. Copy it to `libraries/lv_conf.h` (one level UP from the lvgl folder)
+3. Open it and change the very first `#if 0` to `#if 1`
 
-```c
-#define LV_USE_LOG       1
-#define LV_LOG_LEVEL     LV_LOG_LEVEL_WARN
-#define LV_FONT_MONTSERRAT_14  1
-#define LV_FONT_MONTSERRAT_16  1
-#define LV_FONT_MONTSERRAT_20  1
-#define LV_THEME_DEFAULT_DARK  1
+**Correct directory layout:**
+
+```
+Documents/
+  Arduino/
+    libraries/
+      lvgl/              ← LVGL library folder
+      TFT_eSPI/          ← TFT driver
+      ArduinoJson/        ← JSON library
+      ...
+      lv_conf.h           ← PLACE IT HERE (next to lvgl folder)
 ```
 
-**Locate the LVGL library folder:**
+**Common mistake (WRONG):**
 
-- **Windows:** `%USERPROFILE%\Documents\Arduino\libraries\lvgl\`
-- **macOS:** `~/Documents/Arduino/libraries/lvgl/`
+```
+libraries/
+  lvgl/
+    lv_conf.h           ← WRONG! Do NOT put it inside lvgl folder
+```
+
+The reason: LVGL's `lv_conf_internal.h` resolves `../../lv_conf.h` relative to its own location (`lvgl/src/`), which points to the `libraries/` folder.
 
 ### Step 6 — Open and Configure the Firmware
 
@@ -398,9 +416,10 @@ ugent-esp32/
 ├── docs/
 │   └── ugent-esp32-app-plan.md       ← Architecture and implementation plan
 ├── firmware/
+│   ├── lv_conf.h                     ← Pre-configured LVGL 8.x config (copy to libraries/)
 │   └── ugent-monitor/
 │       ├── ugent-monitor.ino          ← Main entry point
-│       ├── config.h                   ← Hardware pins, defaults, theme colors
+│       ├── config.h                   ← Hardware pins, defaults, LEDC compat, theme colors
 │       ├── nvs_storage.h              ← Non-volatile storage (WiFi, server config)
 │       ├── wifi_manager.h             ← WiFi STA + SmartConfig fallback
 │       ├── ugent_client.h             ← UGENT REST API client
@@ -474,12 +493,14 @@ Ensure your UGENT server has the **channel-web** plugin enabled and is accessibl
 
 | Error | Fix |
 |-------|-----|
+| `lv_conf.h: No such file or directory` | Place `lv_conf.h` **next to** `lvgl/` in `libraries/`, NOT inside it. Use the pre-configured `firmware/lv_conf.h`. |
+| `TFT_Touch.h: No such file or directory` | Install TFT_Touch from [GitHub](https://github.com/Bodmer/TFT_Touch) as ZIP library |
 | `TFT_eSPI.h: No such file or directory` | Install TFT_eSPI library |
 | `lvgl.h: No such file or directory` | Install LVGL library (version 8.x) |
 | `ArduinoJson.h: No such file or directory` | Install ArduinoJson library |
-| `lv_conf.h` not found | Copy `lv_conf_template.h` to `lv_conf.h` and set `#if 1` |
+| `'ledcSetup' was not declared` | You have ESP32 Core 3.x — the code auto-detects and uses `ledcAttach()` instead |
 | `User_Setup.h` errors | Configure TFT_eSPI with correct pin definitions (see Step 4) |
-| LVGL 9.x API errors | Downgrade LVGL to 8.x |
+| LVGL 9.x API errors | Downgrade LVGL to 8.x (completely different API) |
 | Out of memory / SRAM | Use "Huge APP" partition scheme; reduce `LVGL_BUF_SIZE` in config.h |
 
 ### Touch Not Working
@@ -508,6 +529,7 @@ Ensure your UGENT server has the **channel-web** plugin enabled and is accessibl
 - The firmware uses a partial display buffer (`SCREEN_WIDTH × 10` pixels) to conserve RAM
 - Colors use RGB565 format (16-bit) for LVGL compatibility
 - Default theme is Catppuccin Mocha dark — customize colors in `config.h`
+- **ESP32 Core 2.x and 3.x compatible** — `config.h` auto-detects the core version and uses the correct LEDC PWM API (`ledcSetup`/`ledcAttachPin` for 2.x, `ledcAttach` for 3.x)
 
 ## License
 

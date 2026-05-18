@@ -89,12 +89,12 @@ static bool init_hardware() {
     touch.setCal(TOUCH_CAL_0, TOUCH_CAL_1, TOUCH_CAL_2, TOUCH_CAL_3,
                  SCREEN_WIDTH, SCREEN_HEIGHT, 1);
 
-    // Backlight PWM
-    ledcSetup(BACKLIGHT_PWM_CHANNEL, BACKLIGHT_PWM_FREQ, BACKLIGHT_PWM_RES);
-    ledcAttachPin(LCD_BL_PIN, BACKLIGHT_PWM_CHANNEL);
+    // Backlight PWM (compatible with ESP32 Core 2.x and 3.x)
+    ugent_ledc_init(LCD_BL_PIN, BACKLIGHT_PWM_CHANNEL,
+                    BACKLIGHT_PWM_FREQ, BACKLIGHT_PWM_RES);
     currentBrightness = nvs.getBrightness();
     if (currentBrightness < 10) currentBrightness = 128;
-    ledcWrite(BACKLIGHT_PWM_CHANNEL, currentBrightness);
+    ugent_ledc_write(LCD_BL_PIN, BACKLIGHT_PWM_CHANNEL, currentBrightness);
 
     Serial.println("[UGENT] Hardware OK");
     return true;
@@ -129,7 +129,7 @@ static void update_backlight() {
     uint8_t target = nvs.getBrightness();
     if (target != currentBrightness && target >= 10) {
         currentBrightness = target;
-        ledcWrite(BACKLIGHT_PWM_CHANNEL, currentBrightness);
+        ugent_ledc_write(LCD_BL_PIN, BACKLIGHT_PWM_CHANNEL, currentBrightness);
     }
 }
 

@@ -10,6 +10,14 @@
 
 #include <cstdint>
 
+// ─── ESP32 Core Compatibility ─────────────────────────────────────────────────
+// Arduino-ESP32 Core 3.x removed ledcSetup/ledcAttachPin in favor of ledcAttach
+#if ESP_ARDUINO_VERSION >= ESP_ARDUINO_VERSION_VAL(3, 0, 0)
+    #define UGENT_LEDC_NEW_API 1
+#else
+    #define UGENT_LEDC_NEW_API 0
+#endif
+
 // ─── Firmware ────────────────────────────────────────────────────────────────
 #define FIRMWARE_VERSION "1.0.0"
 #define FIRMWARE_NAME    "UGENT Monitor"
@@ -52,6 +60,30 @@
 #define BACKLIGHT_PWM_CHANNEL 0
 #define BACKLIGHT_PWM_FREQ    5000   // 5 kHz
 #define BACKLIGHT_PWM_RES     8      // 8-bit resolution (0–255)
+
+// ─── LEDC Compatibility Helpers ───────────────────────────────────────────────
+// Provide unified API for both ESP32 Core 2.x and 3.x
+
+static inline void ugent_ledc_init(uint8_t pin, uint8_t channel, uint32_t freq, uint8_t res) {
+#if UGENT_LEDC_NEW_API
+    // Core 3.x: ledcAttach(pin, freq, res) — auto channel management
+    ledcAttach(pin, freq, res);
+#else
+    // Core 2.x: explicit channel setup
+    ledcSetup(channel, freq, res);
+    ledcAttachPin(pin, channel);
+#endif
+}
+
+static inline void ugent_ledc_write(uint8_t pin, uint8_t channel, uint32_t duty) {
+#if UGENT_LEDC_NEW_API
+    // Core 3.x: ledcWrite uses pin directly
+    ledcWrite(pin, duty);
+#else
+    // Core 2.x: ledcWrite uses channel
+    ledcWrite(channel, duty);
+#endif
+}
 
 // LVGL draw buffer size (in pixels) — use partial buffer to save RAM
 // screenWidth * 10 as per vendor example
