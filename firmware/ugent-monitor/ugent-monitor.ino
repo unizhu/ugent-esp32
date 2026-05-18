@@ -5,9 +5,12 @@
  * Displays UGENT agent status, tasks, and enables human-in-the-loop interaction.
  *
  * HARDWARE NOTES:
- *   Display (ILI9341) and Touch (XPT2046) are on SEPARATE SPI buses.
- *   - Display SPI (HSPI): MOSI=13, SCLK=14, CS=15, DC=2, RST=12
- *   - Touch SPI (VSPI):   MISO=39, MOSI=32, CS=33, CLK=25
+ *   Display (ILI9341) and Touch (XPT2046) are on SEPARATE SPI hardware.
+ *   - Display SPI (HSPI/SPI2): MOSI=13, SCLK=14, CS=15, DC=2, RST=12
+ *     (Requires USE_HSPI_PORT in TFT_eSPI User_Setup.h)
+ *   - Touch SPI (VSPI/SPI3):   MISO=39, MOSI=32, CS=33, CLK=25
+ *     (Uses SPIClass(VSPI) with remapped pins)
+ *   Both MUST be on different SPI peripherals or colors corrupt + flickering.
  *
  * COLOR NOTES:
  *   ILI9341 over SPI needs byte-swapping for RGB565.
@@ -49,7 +52,10 @@ static lv_color_t* buf1 = nullptr;
 static lv_color_t* buf2 = nullptr;  // Double buffer for flicker-free rendering
 static lv_indev_drv_t indev_drv;
 
-// Touch SPI — separate hardware SPI bus (VSPI) for XPT2046
+// Touch SPI — uses VSPI (SPI3) hardware bus for XPT2046.
+// Display uses HSPI (SPI2) via TFT_eSPI with USE_HSPI_PORT in User_Setup.h.
+// CRITICAL: Touch and display MUST be on different SPI hardware peripherals.
+// Using the same peripheral causes B&W colors and flickering.
 static SPIClass touchSPI(VSPI);
 
 // Last touch position (for LVGL continuity when released)
@@ -149,12 +155,13 @@ static bool init_hardware() {
     tft.setRotation(ROTATION);
     tft.fillScreen(TFT_BLACK);
 
-    // Touch SPI init — XPT2046 on VSPI bus (separate from display HSPI)
+    // Touch SPI init — XPT2046 on VSPI bus (SPI3), separate from display (HSPI/SPI2)
+    // Uses pins: CLK=25, MISO=39, MOSI=32, CS=33
     touchSPI.begin(TOUCH_CLK, TOUCH_DOUT, TOUCH_DIN, TOUCH_CS);
     pinMode(TOUCH_CS, OUTPUT);
     digitalWrite(TOUCH_CS, HIGH);
 
-    Serial.println("[UGENT] Touch SPI initialized (hardware SPI)");
+    Serial.println("[UGENT] Touch SPI initialized (VSPI hardware)");
 
     // Backlight PWM (compatible with ESP32 Core 2.x and 3.x)
     ugent_ledc_init(LCD_BL_PIN, BACKLIGHT_PWM_CHANNEL,

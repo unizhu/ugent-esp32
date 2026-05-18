@@ -4,14 +4,11 @@
  * Hardware: ESP32-2432S028R (2.8" 320x240 ILI9341 + XPT2046)
  * Framework: Arduino + LVGL 8.x + TFT_eSPI
  *
- * IMPORTANT: The display (ILI9341) and touch (XPT2046) are on
- * SEPARATE SPI buses. TFT_eSPI handles the display SPI (HSPI),
- * touch uses raw hardware SPI (VSPI) — no TFT_Touch library needed.
- * * IMPORTANT: The display (ILI9341) and touch (XPT2046) are on
- * SEPARATE SPI buses. TFT_eSPI handles the display SPI,
- * TFT_Touch handles the touch SPI with its own pin definitions.
+ * SPI BUS ALLOCATION (proven by ropg/LVGL_CYD):
+ *   Display (ILI9341):  HSPI (SPI2) via TFT_eSPI — USE_HSPI_PORT in User_Setup.h
+ *   Touch (XPT2046):    VSPI (SPI3) via SPIClass(VSPI) with remapped pins
+ *   No SPI hardware conflict = correct colors + no flickering
  */
-
 #ifndef CONFIG_H
 #define CONFIG_H
 
@@ -26,7 +23,7 @@
 #endif
 
 // ─── Firmware ────────────────────────────────────────────────────────────────
-#define FIRMWARE_VERSION "1.1.0"
+#define FIRMWARE_VERSION "1.2.0"
 #define FIRMWARE_NAME    "UGENT Monitor"
 
 // ─── Display ─────────────────────────────────────────────────────────────────
@@ -38,13 +35,13 @@
 // Listed for reference only:
 //   TFT_MOSI=13, TFT_SCLK=14, TFT_CS=15, TFT_DC=2, TFT_RST=12, TFT_BL=21
 
-// Touch SPI pins — on a SEPARATE SPI bus (VSPI) from display (HSPI)
-// Uses raw SPIClass hardware SPI — no TFT_Touch library needed
-// (TFT_Touch uses slow bit-banged GPIO that causes display flickering)
-#define TOUCH_DOUT 39   // MISO (data from touch controller)
+// Touch SPI pins — on VSPI bus (SPI3), separate from display HSPI (SPI2)
+// Uses raw SPIClass(VSPI) hardware SPI — no TFT_Touch library needed
+// (TFT_Touch uses slow bit-banged GPIO that causes display flickering)#define TOUCH_DOUT 39   // MISO (data from touch controller)
 #define TOUCH_DIN  32   // MOSI (data to touch controller)
 #define TOUCH_CS   33   // Chip select
-#define TOUCH_CLK  25   // Clock#define TOUCH_IRQ  36   // IRQ pin (36 on most boards, 255 if unused)
+#define TOUCH_CLK  25   // Clock
+#define TOUCH_IRQ  36   // IRQ pin (input-only GPIO 36, or 255 if unused)
 
 // Touch calibration for TFT_Touch setCal() format
 // Vendor example: touch.setCal(526, 3443, 750, 3377, 320, 240, 1)

@@ -13,12 +13,18 @@ The UGENT ESP32 Monitor connects to your UGENT server via WiFi and displays:
 
 Communication uses HTTP polling (5s interval) with SSE (Server-Sent Events) for real-time event streaming.
 
-### v1.1.0 Changes
+### v1.2.0 Changes
 
-- **Fixed touch input** — replaced TFT_Touch (slow bit-banged GPIO) with raw hardware SPI (VSPI/SPIClass) for XPT2046 — ~100x faster, no more display flickering
-- **Fixed colors** — corrected byte-swap: `LV_COLOR_16_SWAP=0` + `pushColors(...,true)` matches vendor example and official LVGL TFT_eSPI driver
-- **Fixed flickering** — root cause was TFT_Touch's `delay(1)` calls blocking ~20ms per touch read. Also added double-buffered draw buffer (320×10 × 2)
+- **Fixed B&W + flickering (SPI hardware conflict)** — Root cause: both display (TFT_eSPI) and touch (SPIClass) were sharing SPI3 (VSPI). Every touch read reconfigured the SPI3 hardware, corrupting display data. Fix: Added `USE_HSPI_PORT` to User_Setup.h so display uses HSPI (SPI2), touch stays on VSPI (SPI3). Proven approach from ropg/LVGL_CYD.
+- **Fixed User_Setup.h** — Removed `TOUCH_CS` definition (TFT_eSPI must NOT control GPIO 33), added `USE_HSPI_PORT` for HSPI bus
 - **Removed TFT_Touch dependency** — no external touch library needed, uses ESP32 hardware SPI directly
+
+### v1.1.0 Changes (superseded by v1.2.0)
+
+- Replaced TFT_Touch with raw hardware SPI for XPT2046
+- Corrected byte-swap: `LV_COLOR_16_SWAP=0` + `pushColors(...,true)`
+- Added double-buffered draw buffer
+- **Still had B&W + flickering** — the real fix required separating SPI hardware peripherals (v1.2.0)
 
 ## Hardware
 
@@ -120,7 +126,7 @@ Open **Sketch > Include Library > Manage Libraries...** and install:
 
 > **Important:** LVGL 9.x has a completely different API. You MUST install LVGL 8.x. In Library Manager, search "lvgl", click the version dropdown, and select the latest 8.x release (e.g., 8.4.0).
 >
-> **No external touch library needed.** The firmware uses raw hardware SPI (SPIClass/VSPI) to communicate with the XPT2046 touch controller. This is much faster than the TFT_Touch library (which uses slow bit-banged GPIO with `delay(1)` calls that cause display flickering).
+> **No external touch library needed.** The firmware uses raw hardware SPI (`SPIClass(VSPI)` on SPI3) to communicate with the XPT2046 touch controller. The display uses a separate SPI hardware peripheral (`SPIClass(HSPI)` on SPI2 via TFT_eSPI). This hardware separation is **critical** — using the same SPI peripheral for both causes B&W colors and flickering.
 
 ### Step 4 — Configure TFT_eSPI (User_Setup.h)
 
@@ -131,53 +137,50 @@ TFT_eSPI requires a custom `User_Setup.h` to match the ESP32-2432S028R pin mappi
 - **Windows:** `%USERPROFILE%\Documents\Arduino\libraries\TFT_eSPI\`
 - **macOS:** `~/Documents/Arduino/libraries/TFT_eSPI/`
 
-**Option A — Replace User_Setup.h**
+**Option A — Use the provided User_Setup.h (Recommended)**
 
-Replace the file `User_Setup.h` in the TFT_eSPI library folder with the following content:
+A pre-configured `User_Setup.h` is included in this repo at `firmware/User_Setup.h`.
+Copy it to the TFT_eSPI library folder:
+
+```bash
+# macOS
+cp ugent-esp32/firmware/User_Setup.h ~/Documents/Arduino/libraries/TFT_eSPI/User_Setup.h
+
+# Windows (PowerShell)
+copy ugent-esp32\firmware\User_Setup.h "%USERPROFILE%\Documents\Arduino\libraries\TFT_eSPI\User_Setup.h"
+```
+
+**Key settings in this file:**
+- `#define ILI9341_2_DRIVER` — Alternative ILI9341 driver (better compatibility)
+- `#define USE_HSPI_PORT` — **CRITICAL!** Makes TFT_eSPI use HSPI (SPI2) for display. Without this, both display and touch share SPI3 (VSPI) → B&W colors + flickering
+- `TOUCH_CS` is NOT defined — TFT_eSPI must NOT touch GPIO 33 (our touch code handles it via separate SPIClass)
+- `#define SPI_FREQUENCY 40000000` — 40MHz (safe, reliable)
+
+**Option B — Manual configuration**
+
+If you prefer to edit manually, the minimum required settings are:
 
 ```cpp
-// User_Setup.h for ESP32-2432S028R (2.8" ILI9341 + XPT2046)
-#pragma once
-
-#define USER_SETUP_INFO "ESP32-2432S028R"
-
-// Display driver — use ILI9341_2_DRIVER for better compatibility
-#define ILI9341_2_DRIVER
-
-// Display SPI pins
-#define TFT_MOSI  13
-#define TFT_SCLK  14
-#define TFT_CS    15
-#define TFT_DC     2
-#define TFT_RST   12
-#define TFT_BL    21
-
-// Backlight
+#define ILI9341_2_DRIVER     // Alternative ILI9341 driver
+#define TFT_WIDTH  240
+#define TFT_HEIGHT 320
+#define TFT_MOSI 13
+#define TFT_SCLK 14
+#define TFT_CS   15
+#define TFT_DC    2
+#define TFT_RST  12
+#define TFT_BL   21
 #define TFT_BACKLIGHT_ON HIGH
-
-// NOTE: Do NOT define TOUCH_CS here!
-// The XPT2046 touch is on a SEPARATE SPI bus and is handled
-// by the TFT_Touch library (not TFT_eSPI's built-in touch).
-
-// Fonts
+#define USE_HSPI_PORT        // CRITICAL! Display on HSPI/SPI2, touch on VSPI/SPI3
+// DO NOT define TOUCH_CS — touch is handled by separate SPIClass(VSPI)
 #define LOAD_GLCD
 #define LOAD_FONT2
 #define LOAD_FONT4
-#define LOAD_FONT6
-#define LOAD_FONT7
-#define LOAD_FONT8
 #define LOAD_GFXFF
-
-// SPI frequency
-#define SPI_FREQUENCY       40000000
+#define SMOOTH_FONT
+#define SPI_FREQUENCY  40000000
 #define SPI_READ_FREQUENCY  20000000
 ```
-
-> **Note:** We do NOT define `TOUCH_CS`, `TOUCH_MOSI`, `TOUCH_MISO`, or `TOUCH_CLK` in TFT_eSPI's `User_Setup.h`. The touch controller is handled entirely by the TFT_Touch library using its own separate SPI bus (configured in `config.h`).
-
-**Option B — Use the vendor's User_Setup.h**
-
-The board vendor provides example files in the `2.8inch_ESP32-2432S028R/` directory of this repository. Copy the appropriate `User_Setup.h` from there into the TFT_eSPI library folder.
 
 ### Step 5 — Configure LVGL
 
@@ -530,11 +533,12 @@ Ensure your UGENT server has the **channel-web** plugin enabled and is accessibl
 
 ### Display Shows Garbage / Wrong Colors
 
-- **Black & white only / no colors:** The flush callback uses `pushColors(..., true)` for byte-swapping. Make sure `LV_COLOR_16_SWAP` is set to `0` in `lv_conf.h` — TFT_eSPI handles the swap, NOT LVGL.
-- **Flashing / flickering every 2 seconds:** Old firmware used TFT_Touch library which blocks ~20ms per read with `delay(1)` calls. Updated firmware uses hardware SPI and should not flicker. If still flickering, try reducing `LV_DISP_DEF_REFR_PERIOD` to `20` in `lv_conf.h`.
-- Verify `User_Setup.h` has `#define ILI9341_2_DRIVER` (or `ILI9341_DRIVER`)
-- Check SPI pin definitions match your board variant
-- Try lowering `SPI_FREQUENCY` in `User_Setup.h` to `20000000`
+- **Black & white only / no colors:** Most likely cause: SPI hardware conflict. Verify your `User_Setup.h` has `#define USE_HSPI_PORT` — this puts the display on HSPI (SPI2) while touch uses VSPI (SPI3). Without `USE_HSPI_PORT`, both share SPI3 and corrupt each other.
+- **Also check:** `User_Setup.h` must NOT define `TOUCH_CS` (comment it out if present). TFT_eSPI controlling GPIO 33 conflicts with our touch SPI code.
+- **Flashing / flickering:** Same root cause — SPI hardware conflict. With `USE_HSPI_PORT` and touch on separate VSPI, flickering should stop.
+- Verify `User_Setup.h` has `#define ILI9341_2_DRIVER`
+- Make sure `LV_COLOR_16_SWAP` is `0` in `lv_conf.h`
+- Try lowering `SPI_FREQUENCY` in `User_Setup.h` to `20000000` if still having issues
 
 ## Development Notes
 
