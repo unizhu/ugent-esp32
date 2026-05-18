@@ -86,7 +86,8 @@ static bool init_hardware() {
 
     // Touch init with calibration
     touch.begin();
-    touch.setCal(526, 3443, 750, 3377, 320, 240, 1);
+    touch.setCal(TOUCH_CAL_0, TOUCH_CAL_1, TOUCH_CAL_2, TOUCH_CAL_3,
+                 SCREEN_WIDTH, SCREEN_HEIGHT, 1);
 
     // Backlight PWM
     ledcSetup(BACKLIGHT_PWM_CHANNEL, BACKLIGHT_PWM_FREQ, BACKLIGHT_PWM_RES);
@@ -134,20 +135,19 @@ static void update_backlight() {
 
 // ─── SSE Event Callback ────────────────────────────────────────────────────────
 
-static void on_sse_event(const SSEEvent& event) {
+static void on_sse_event(const SseEvent& event) {
     switch (event.type) {
-        case SSEEventType::STATUS_UPDATE:
-            ugent.parseStatus(event.data);
-            ui.updateDashboard(&ugent);
+        case SseEventType::TASK_STATUS_CHANGED:
+            // Re-fetch full status via HTTP for consistency
+            if (ugent.fetchStatus()) {
+                ui.updateDashboard(&ugent);
+                ui.updateTasks(&ugent);
+            }
             break;
-        case SSEEventType::TASK_UPDATE:
-            ugent.parseStatus(event.data);  // same payload format
-            ui.updateTasks(&ugent);
-            break;
-        case SSEEventType::INTERACTION_REQUEST:
+        case SseEventType::INTERACTION_REQUEST:
             ui.showInteraction(event.data);
             break;
-        case SSEEventType::ALERT:
+        case SseEventType::CHAT_NOTIFICATION:
             ui.showAlert(event.data);
             break;
         default:
@@ -165,7 +165,7 @@ static bool init_connectivity() {
     }
 
     // WiFi
-    wifi.begin();
+    wifi.begin(&nvs);
 
     if (nvs.hasWifiCredentials()) {
         String ssid = nvs.getWifiSsid();
@@ -182,21 +182,14 @@ static bool init_connectivity() {
     }
 
     // UGENT client
-    if (nvs.hasUgentConfig()) {
-        ugent.begin(nvs.getUgentHost(), nvs.getUgentPort(), nvs.getUgentApiKey());
-        Serial.printf("[UGENT] Server: %s:%d\n",
-            nvs.getUgentHost().c_str(), nvs.getUgentPort());
-    } else {
-        ugent.begin(DEFAULT_UGENT_HOST, DEFAULT_UGENT_PORT, "");
-        Serial.println("[UGENT] Using default server config");
-    }
+    ugent.begin(&nvs);
+    Serial.printf("[UGENT] Server: %s:%d\n",
+        nvs.getUgentHost().c_str(), nvs.getUgentPort());
 
     // SSE client
     if (wifi.isConnected()) {
-        sse.begin(nvs.getUgentHost(), nvs.getUgentPort(),
-                  UGENT_SSE_PATH, nvs.getUgentApiKey());
-        sse.setCallback(on_sse_event);
-        sse.start();
+        sse.begin(&nvs);
+        sse.onEvent(on_sse_event);
         Serial.println("[UGENT] SSE started");
     }
 
@@ -227,9 +220,9 @@ void setup() {
     // Init connectivity (NVS, WiFi, UGENT client, SSE)
     init_connectivity();
 
-    // Init UI with all screens
-    ui.begin();
+    // Init UI — set clients BEFORE begin so begin() can wire up callbacks
     ui.setClients(&ugent, &wifi, &nvs);
+    ui.begin();
 
     // Initial status fetch
     if (wifi.isConnected() && ugent.testConnection()) {

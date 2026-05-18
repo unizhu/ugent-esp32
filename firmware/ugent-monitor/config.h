@@ -31,6 +31,11 @@
 #define TOUCH_DIN  32   // MOSI
 #define TOUCH_CS   33
 #define TOUCH_CLK  25
+#define TOUCH_IRQ  36   // IRQ pin (not connected on all boards, use 255 if unused)
+
+// Aliases used by main .ino (TFT_Touch library convention)
+#define TOUCH_CS_PIN  TOUCH_CS
+#define TOUCH_IRQ_PIN TOUCH_IRQ
 
 // Touch calibration (from vendor LVGL example)
 #define TOUCH_CAL_0   526
@@ -40,6 +45,13 @@
 
 // Display rotation: 1 = landscape (320x240)
 #define TFT_ROTATION 1
+#define ROTATION    TFT_ROTATION  // Alias used by main .ino
+
+// Backlight PWM (GPIO 21 on ESP32-2432S028R)
+#define LCD_BL_PIN            21
+#define BACKLIGHT_PWM_CHANNEL 0
+#define BACKLIGHT_PWM_FREQ    5000   // 5 kHz
+#define BACKLIGHT_PWM_RES     8      // 8-bit resolution (0–255)
 
 // LVGL draw buffer size (in pixels) — use partial buffer to save RAM
 // screenWidth * 10 as per vendor example
@@ -59,6 +71,12 @@
 
 // Display
 #define NVS_KEY_BRIGHTNESS    "brightness"
+
+// ─── UGENT Server API Paths ────────────────────────────────────────────────────
+#define UGENT_STATUS_PATH   "/v1/ugent/status"
+#define UGENT_EVENTS_PATH   "/v1/ugent/events"
+#define UGENT_SSE_PATH      "/v1/ugent/events"
+#define UGENT_COMMANDS_PATH "/v1/ugent/commands"
 
 // ─── Defaults ─────────────────────────────────────────────────────────────────
 #define DEFAULT_UGENT_HOST   ""
@@ -102,7 +120,7 @@
 #define COLOR_SUBTEXT      0xB5B6   // Subtext1 (light gray)
 #define COLOR_ACCENT       0x049F   // Blue accent (#89b4fa → RGB565)
 #define COLOR_ACCENT_GREEN 0x07E4   // Green (#a6e3a1)
-#define COLOR_ACCENT_RED   0x049F   // Red (#f38ba8 → RGB565 approx)
+#define COLOR_ACCENT_RED   0xF455   // Red (#f38ba8 → RGB565)
 #define COLOR_ACCENT_YELLOW 0xADA0  // Yellow (#f9e2af)
 #define COLOR_RUNNING      0x07E4   // Green for running status
 #define COLOR_COMPLETED    0x049F   // Blue for completed

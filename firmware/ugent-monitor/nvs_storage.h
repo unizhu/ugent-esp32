@@ -13,8 +13,8 @@
 
 class NvsStorage {
 public:
-    void begin() {
-        prefs_.begin(NVS_NAMESPACE, false);
+    bool begin() {
+        return prefs_.begin(NVS_NAMESPACE, false);
     }
 
     void end() {

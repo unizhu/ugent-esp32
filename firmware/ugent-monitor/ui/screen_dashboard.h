@@ -169,13 +169,13 @@ inline void screen_dashboard_update(UgentClient* client) {
     if (!client) return;
     const UgentStatus& s = client->getStatus();
 
-    // Status bar
+    // Status bar — use set_style instead of add_style to avoid accumulation
     if (s.agentRunning) {
         lv_label_set_text(dash_status_label, "RUNNING");
-        lv_obj_add_style(dash_status_label, &style_status_run, 0);
+        lv_obj_set_style_text_color(dash_status_label, color_green(), LV_PART_MAIN);
     } else {
         lv_label_set_text(dash_status_label, "IDLE");
-        lv_obj_add_style(dash_status_label, &style_status_pend, 0);
+        lv_obj_set_style_text_color(dash_status_label, color_overlay0(), LV_PART_MAIN);
     }
 
     // Version
