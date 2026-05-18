@@ -20,12 +20,23 @@ static lv_obj_t* interact_send_btn = nullptr;
 static lv_obj_t* interact_history = nullptr;
 static lv_obj_t* interact_status = nullptr;
 
-// Ring buffer for message history
-static char msg_history[MAX_MESSAGES_HISTORY][MAX_MESSAGE_LEN];
+// Ring buffer for message history (heap-allocated to save DRAM)
+static char** msg_history = nullptr;
 static uint8_t msg_history_count = 0;
 static UgentClient* interact_client_ = nullptr;
 
+inline void interact_history_init() {
+    msg_history = (char**)malloc(MAX_MESSAGES_HISTORY * sizeof(char*));
+    if (msg_history) {
+        for (uint8_t i = 0; i < MAX_MESSAGES_HISTORY; i++) {
+            msg_history[i] = (char*)calloc(1, MAX_MESSAGE_LEN);
+        }
+    }
+    msg_history_count = 0;
+}
+
 inline void interact_add_message(const char* msg) {
+    if (!msg_history) return;
     if (msg_history_count < MAX_MESSAGES_HISTORY) {
         strncpy(msg_history[msg_history_count], msg, MAX_MESSAGE_LEN - 1);
         msg_history[msg_history_count][MAX_MESSAGE_LEN - 1] = '\0';

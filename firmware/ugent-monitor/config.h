@@ -138,11 +138,12 @@ static inline void ugent_ledc_write(uint8_t pin, uint8_t channel, uint32_t duty)
 #define MAX_VERSION_LEN  16
 #define MAX_TASK_NAME    40
 #define MAX_STATUS_STR   16
-#define MAX_MESSAGE_LEN  256
+#define MAX_MESSAGE_LEN  128
+#define MAX_SSE_DATA_LEN  256
 
 // ─── Limits ───────────────────────────────────────────────────────────────────
-#define MAX_TASKS_DISPLAY      20
-#define MAX_MESSAGES_HISTORY   20
+#define MAX_TASKS_DISPLAY      8
+#define MAX_MESSAGES_HISTORY   8
 #define MAX_WIFI_NETWORKS      15
 
 // ─── UI Theme Colors (Catppuccin Mocha-inspired dark theme) ───────────────────

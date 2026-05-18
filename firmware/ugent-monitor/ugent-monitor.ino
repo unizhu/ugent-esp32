@@ -29,7 +29,7 @@ static UIManager   ui;
 
 // LVGL display/touch driver buffers
 static lv_disp_draw_buf_t draw_buf;
-static lv_color_t buf1[SCREEN_WIDTH * 10];
+static lv_color_t* buf1 = nullptr;  // Heap-allocated to save DRAM
 static lv_indev_drv_t indev_drv;
 
 // Backlight PWM
@@ -101,7 +101,15 @@ static bool init_hardware() {
 
 static bool init_lvgl() {
     lv_init();
-    lv_disp_draw_buf_init(&draw_buf, buf1, nullptr, SCREEN_WIDTH * 10);
+
+    // Allocate draw buffer on heap to save DRAM (ESP32-2432S028R has no PSRAM)
+    // Use SCREEN_WIDTH * 5 lines — sufficient for 320x240 display
+    buf1 = (lv_color_t*)malloc(SCREEN_WIDTH * 5 * sizeof(lv_color_t));
+    if (!buf1) {
+        Serial.println("[UGENT] FAIL: LVGL draw buf alloc");
+        return false;
+    }
+    lv_disp_draw_buf_init(&draw_buf, buf1, nullptr, SCREEN_WIDTH * 5);
 
     static lv_disp_drv_t disp_drv;
     lv_disp_drv_init(&disp_drv);
@@ -220,6 +228,7 @@ void setup() {
     // Init UI — set clients BEFORE begin so begin() can wire up callbacks
     ui.setClients(&ugent, &wifi, &nvs);
     ui.begin();
+    interact_history_init();  // Allocate message history on heap
 
     // Initial status fetch
     if (wifi.isConnected() && ugent.testConnection()) {

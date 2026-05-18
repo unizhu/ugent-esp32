@@ -30,8 +30,8 @@ enum class SseEventType : uint8_t {
 
 struct SseEvent {
     SseEventType type;
-    char data[512];   // Event payload (JSON string)
-    char id[32];      // Last event ID for reconnection
+    char data[MAX_SSE_DATA_LEN];   // Event payload (JSON string)
+    char id[32];                   // Last event ID for reconnection
 };
 
 // Callbacks
@@ -242,7 +242,7 @@ private:
     // Parser state
     ParserState parserState_;
     char eventType_[64];
-    char eventData_[512];
+    char eventData_[MAX_SSE_DATA_LEN];
     size_t eventDataIdx_;
     char lastEventId_[32];
 
