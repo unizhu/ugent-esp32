@@ -40,7 +40,7 @@
  * DO NOT exceed 48KB or DRAM will overflow on link.
  */
 #define LV_MEM_CUSTOM 0
-#define LV_MEM_SIZE (32U * 1024U)          /* 32KB — reduced from 64KB to fit DRAM0 with WiFi/NVS/SSE */
+#define LV_MEM_SIZE (48U * 1024U)          /* 48KB — 32KB was too tight for 100+ objects + keyboard */
 #define LV_MEM_ADR 0
 #define LV_MEM_BUF_MAX_NUM 16
 
