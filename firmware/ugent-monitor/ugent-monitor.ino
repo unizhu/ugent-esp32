@@ -15,6 +15,9 @@
  * TOUCH: separate VSPI bus via XPT2046_Touchscreen library:
  *   - CLK=25, MOSI=32, MISO=39, CS=33, IRQ=36
  *   - Rate-limited to every 50ms to minimize blocking
+ *
+ * INIT ORDER: matches working test-lvgl exactly:
+ *   lv_init() → touchSpi → tft.begin() → LVGL drivers → UI → WiFi
  */
 
 #include <Arduino.h>
@@ -44,7 +47,8 @@ static const uint16_t screenHeight = 240;
 
 // ─── Globals ───────────────────────────────────────────────────────────────────
 
-static TFT_eSPI tft = TFT_eSPI();  // Default ctor uses TFT_WIDTH/TFT_HEIGHT (portrait) from User_Setup.h
+// Same constructor as working test-lvgl and vendor demo
+TFT_eSPI tft = TFT_eSPI(screenWidth, screenHeight);
 
 // Touch — separate VSPI instance (display uses HSPI)
 static SPIClass touchSpi = SPIClass(VSPI);
@@ -60,10 +64,10 @@ static UgentClient ugent;
 static SseClient   sse;
 static UIManager   ui;
 
-// LVGL display driver — heap-allocated draw buffer
-// Static buffer in BSS overflows DRAM0 when WiFi/NVS/SSE are linked
-// (LV_MEM_SIZE 32KB in BSS + 15KB draw buffer + WiFi stacks > 160KB DRAM)
-// Heap allocation avoids BSS; malloc on ESP32 always returns DMA-capable DRAM.
+// LVGL display driver — heap-allocated draw buffer (avoids DRAM0 BSS overflow)
+// test-lvgl uses static buf[7680] but ugent-monitor links WiFi/NVS/SSE
+// which adds ~40KB BSS. Heap allocation: malloc returns 8-byte aligned DMA-capable DRAM.
+// Buffer size matches test-lvgl: screenWidth * screenHeight / 10 = 7680 pixels = 15.36KB
 static lv_disp_draw_buf_t draw_buf;
 static lv_color_t* buf = nullptr;
 static lv_indev_drv_t indev_drv;
@@ -76,8 +80,9 @@ static uint16_t lastTouchY = 0;
 
 // Backlight PWM
 static uint8_t currentBrightness = 128;
+
 // ─── Display Flush ─────────────────────────────────────────────────────────────
-// EXACT copy from vendor LVGL_Arduino.ino example
+// EXACT copy from vendor LVGL_Arduino.ino example and working test-lvgl
 
 void my_disp_flush(lv_disp_drv_t *disp, const lv_area_t *area, lv_color_t *color_p) {
     uint32_t w = (area->x2 - area->x1 + 1);
@@ -128,52 +133,54 @@ void my_touchpad_read(lv_indev_drv_t *indev_driver, lv_indev_data_t *data) {
         data->point.x = lastTouchX;
         data->point.y = lastTouchY;
     }
-}// ─── Hardware Init ─────────────────────────────────────────────────────────────
-
-static bool init_hardware() {
-    Serial.begin(115200);
-    while (!Serial && millis() < 3000) { delay(10); }
-    Serial.println("[UGENT] Boot");
-
-    // TFT init — same as vendor example
-    tft.begin();
-    tft.setRotation(1);  // Landscape orientation
-    tft.fillScreen(TFT_BLACK);
-
-    // Touch init — separate VSPI bus (display uses HSPI)
-    touchSpi.begin(XPT2046_CLK, XPT2046_MISO, XPT2046_MOSI, XPT2046_CS);
-    ts.begin(touchSpi);
-    ts.setRotation(1);  // Landscape
-
-    Serial.println("[UGENT] TFT + Touch initialized (witnessmenow config)");
-
-    // Backlight PWM (compatible with ESP32 Core 2.x and 3.x)
-    ugent_ledc_init(LCD_BL_PIN, BACKLIGHT_PWM_CHANNEL,
-                    BACKLIGHT_PWM_FREQ, BACKLIGHT_PWM_RES);
-    currentBrightness = nvs.getBrightness();
-    if (currentBrightness < 10) currentBrightness = 128;
-    ugent_ledc_write(LCD_BL_PIN, BACKLIGHT_PWM_CHANNEL, currentBrightness);
-
-    Serial.println("[UGENT] Hardware OK");
-    return true;
 }
 
-// ─── LVGL Init ─────────────────────────────────────────────────────────────────
-// Matches vendor LVGL_Arduino.ino setup exactly
+// ─── LVGL + Hardware Init ──────────────────────────────────────────────────────
+// Matches working test-lvgl init order EXACTLY:
+//   1. Serial
+//   2. lv_init()
+//   3. touchSpi.begin() + ts.begin()
+//   4. tft.begin() + tft.setRotation(1)
+//   5. lv_disp_draw_buf_init
+//   6. Register display driver
+//   7. Register input driver
+//   Then: backlight, WiFi, UI
 
-static bool init_lvgl() {
+static bool init_system() {
+    Serial.begin(115200);
+    while (!Serial && millis() < 3000) { delay(10); }
+    Serial.println("=== UGENT ESP32 Monitor ===");
+
+    // ─── Step 1: lv_init() FIRST — matches test-lvgl order ────────────────
     lv_init();
+    Serial.println("[UGENT] lv_init() done");
 
-    // Heap draw buffer — keeps BSS small (LV_MEM_SIZE already uses 32KB BSS)
-    // screenWidth * 10 = 3200 pixels = 6.4KB on heap (DMA-capable DRAM)
-    uint32_t buf_size = screenWidth * 10;
+    // ─── Step 2: Touch init (separate VSPI bus) ──────────────────────────
+    touchSpi.begin(XPT2046_CLK, XPT2046_MISO, XPT2046_MOSI, XPT2046_CS);
+    ts.begin(touchSpi);
+    ts.setRotation(1);
+
+    // ─── Step 3: TFT init — NO fillScreen (matches test-lvgl) ────────────
+    tft.begin();
+    tft.setRotation(1);
+    // Do NOT call tft.fillScreen() here — test-lvgl doesn't do this
+    Serial.println("[UGENT] TFT + Touch initialized");
+
+    // ─── Step 4: LVGL draw buffer — heap allocated, same size as test-lvgl ─
+    // test-lvgl uses static buf[7680]. We use heap to avoid DRAM0 overflow.
+    // 7680 pixels * 2 bytes = 15.36KB on heap (DMA-capable DRAM)
+    uint32_t buf_size = screenWidth * screenHeight / 10;  // 7680 — matches test-lvgl
     buf = (lv_color_t*)malloc(buf_size * sizeof(lv_color_t));
     if (!buf) {
         Serial.println("[UGENT] FAIL: LVGL draw buffer malloc");
         return false;
     }
+    Serial.printf("[UGENT] Draw buffer: %u pixels (%u bytes) on heap at %p\n",
+                  buf_size, buf_size * sizeof(lv_color_t), buf);
+
     lv_disp_draw_buf_init(&draw_buf, buf, NULL, buf_size);
 
+    // ─── Step 5: Register LVGL display driver ─────────────────────────────
     static lv_disp_drv_t disp_drv;
     lv_disp_drv_init(&disp_drv);
     disp_drv.hor_res = screenWidth;
@@ -182,12 +189,77 @@ static bool init_lvgl() {
     disp_drv.draw_buf = &draw_buf;
     lv_disp_drv_register(&disp_drv);
 
+    // ─── Step 6: Register LVGL input driver ───────────────────────────────
     lv_indev_drv_init(&indev_drv);
     indev_drv.type = LV_INDEV_TYPE_POINTER;
     indev_drv.read_cb = my_touchpad_read;
     lv_indev_drv_register(&indev_drv);
 
-    Serial.println("[UGENT] LVGL OK");
+    Serial.println("[UGENT] LVGL drivers registered");
+
+    // ─── Step 7: Backlight PWM ────────────────────────────────────────────
+    ugent_ledc_init(LCD_BL_PIN, BACKLIGHT_PWM_CHANNEL,
+                    BACKLIGHT_PWM_FREQ, BACKLIGHT_PWM_RES);
+    // Don't read NVS here — it hasn't been initialized yet
+    ugent_ledc_write(LCD_BL_PIN, BACKLIGHT_PWM_CHANNEL, 128);
+
+    // ─── Step 8: DIAGNOSTIC — render colored test (like test-lvgl) ───────
+    // This proves LVGL works before we add WiFi complexity
+    {
+        lv_obj_t *scr = lv_scr_act();
+        lv_obj_set_style_bg_color(scr, lv_color_hex(0x1E1E2E), LV_PART_MAIN);
+        lv_obj_set_style_bg_opa(scr, LV_OPA_COVER, LV_PART_MAIN);
+
+        lv_obj_t *btn1 = lv_btn_create(scr);
+        lv_obj_set_size(btn1, 140, 90);
+        lv_obj_align(btn1, LV_ALIGN_TOP_LEFT, 10, 10);
+        lv_obj_set_style_bg_color(btn1, lv_color_hex(0xFF0000), LV_PART_MAIN);
+        lv_obj_t *l1 = lv_label_create(btn1);
+        lv_label_set_text(l1, "TEST");
+        lv_obj_center(l1);
+
+        lv_obj_t *btn2 = lv_btn_create(scr);
+        lv_obj_set_size(btn2, 140, 90);
+        lv_obj_align(btn2, LV_ALIGN_TOP_RIGHT, -10, 10);
+        lv_obj_set_style_bg_color(btn2, lv_color_hex(0x00FF00), LV_PART_MAIN);
+        lv_obj_t *l2 = lv_label_create(btn2);
+        lv_label_set_text(l2, "COLOR");
+        lv_obj_set_style_text_color(l2, lv_color_hex(0x000000), LV_PART_MAIN);
+        lv_obj_center(l2);
+
+        lv_obj_t *btn3 = lv_btn_create(scr);
+        lv_obj_set_size(btn3, 140, 90);
+        lv_obj_align(btn3, LV_ALIGN_BOTTOM_LEFT, 10, -10);
+        lv_obj_set_style_bg_color(btn3, lv_color_hex(0x0000FF), LV_PART_MAIN);
+
+        lv_obj_t *btn4 = lv_btn_create(scr);
+        lv_obj_set_size(btn4, 140, 90);
+        lv_obj_align(btn4, LV_ALIGN_BOTTOM_RIGHT, -10, -10);
+        lv_obj_set_style_bg_color(btn4, lv_color_hex(0xFFFF00), LV_PART_MAIN);
+
+        Serial.println("[UGENT] Diagnostic: 4 colored buttons rendered");
+        Serial.println("[UGENT] If you see RED/GREEN/BLUE/YELLOW -> LVGL works!");
+        Serial.println("[UGENT] If B&W -> display driver issue, not WiFi");
+    }
+
+    // Render the diagnostic for 3 seconds before proceeding
+    Serial.println("[UGENT] Showing diagnostic for 3 seconds...");
+    for (int i = 0; i < 600; i++) {  // 600 * 5ms = 3 seconds
+        lv_timer_handler();
+        delay(5);
+    }
+
+    // Check LVGL memory usage
+    lv_mem_monitor_t mon;
+    lv_mem_monitor(&mon);
+    Serial.printf("[UGENT] LVGL mem: total=%u, free=%u, used=%u (%u%%), frag=%u%%\n",
+                  mon.total_size, mon.free_size, mon.total_size - mon.free_size,
+                  mon.used_pct, mon.frag_pct);
+
+    // Clear diagnostic — delete all children of screen
+    lv_obj_clean(lv_scr_act());
+
+    Serial.println("[UGENT] System init OK");
     return true;
 }
 
@@ -262,35 +334,43 @@ static bool init_connectivity() {
 // ─── Setup ─────────────────────────────────────────────────────────────────────
 
 void setup() {
-    Serial.println("=== UGENT ESP32 Monitor ===");
-
-    if (!init_hardware()) {
-        Serial.println("[UGENT] HAL init FAILED");
+    if (!init_system()) {
+        Serial.println("[UGENT] System init FAILED");
+        // Can't use LVGL if init failed — raw TFT error screen
         tft.fillScreen(TFT_RED);
         tft.setTextColor(TFT_WHITE);
-        tft.drawString("HW ERROR", 100, 100, 2);
+        tft.drawString("INIT ERROR", 80, 100, 2);
         while (true) delay(1000);
     }
 
-    if (!init_lvgl()) {
-        Serial.println("[UGENT] LVGL init FAILED");
-        tft.fillScreen(TFT_RED);
-        tft.setTextColor(TFT_WHITE);
-        tft.drawString("LVGL ERROR", 80, 100, 2);
-        while (true) delay(1000);
-    }
-
+    // WiFi/NVS/SSE AFTER LVGL is confirmed working
     init_connectivity();
 
+    // Create the real UI
     ui.setClients(&ugent, &wifi, &nvs);
     ui.begin();
     interact_history_init();
+
+    // Final LVGL memory check
+    lv_mem_monitor_t mon;
+    lv_mem_monitor(&mon);
+    Serial.printf("[UGENT] LVGL mem after UI: total=%u, free=%u, used=%u (%u%%)\n",
+                  mon.total_size, mon.free_size,
+                  mon.total_size - mon.free_size, mon.used_pct);
+    if (mon.used_pct > 90) {
+        Serial.println("[UGENT] WARNING: LVGL memory >90% — may cause rendering issues!");
+    }
 
     if (wifi.isConnected() && ugent.testConnection()) {
         ugent.fetchStatus();
         ui.updateDashboard(&ugent);
         ui.updateTasks(&ugent);
     }
+
+    // Update backlight from NVS now that NVS is initialized
+    currentBrightness = nvs.getBrightness();
+    if (currentBrightness < 10) currentBrightness = 128;
+    ugent_ledc_write(LCD_BL_PIN, BACKLIGHT_PWM_CHANNEL, currentBrightness);
 
     Serial.println("[UGENT] Ready!");
 }
