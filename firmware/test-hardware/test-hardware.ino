@@ -1,34 +1,54 @@
 /**
- * Hardware Test Sketch for ESP32-2432S028R
+ * Hardware Test Sketch for ESP32-2432S028R (Cheap Yellow Display)
  * 
- * Tests TFT_eSPI colors and TFT_Touch WITHOUT LVGL.
- * If this shows B&W, the problem is TFT_eSPI / User_Setup.h.
- * If this shows COLOR, the problem is LVGL / lv_conf.h.
+ * Tests TFT_eSPI colors and XPT2046 touch WITHOUT LVGL.
+ * Based on witnessmenow/ESP32-Cheap-Yellow-Display proven configuration:
+ *   - Display on HSPI (SPI2) via TFT_eSPI
+ *   - Touch on separate VSPI (SPI3) via XPT2046_Touchscreen library
  * 
  * Expected: 4 colored quadrants (RED, GREEN, BLUE, YELLOW)
- * and touch coordinates printed on Serial (115200 baud).
+ * Touch coordinates printed on Serial (115200 baud).
+ * 
+ * REQUIRED LIBRARIES:
+ *   - TFT_eSPI (Library Manager)
+ *   - XPT2046_Touchscreen by Paul Stoffregen (Library Manager, search "XPT2046")
  */
 
 #include <TFT_eSPI.h>
-#include <TFT_Touch.h>
+#include <XPT2046_Touchscreen.h>
+#include <SPI.h>
 
-// Touch pins
-#define DOUT 39
-#define DIN  32
-#define DCS  33
-#define DCLK 25
+// ─── Touch pins (separate VSPI bus) ───────────────────────────────────────────
+//  The CYD touch controller (XPT2046) is wired to non-default SPI pins
+//  on a SEPARATE bus from the display.
+#define XPT2046_CLK  25
+#define XPT2046_MISO 39
+#define XPT2046_MOSI 32
+#define XPT2046_CS   33
+#define XPT2046_IRQ  36
 
-TFT_eSPI tft = TFT_eSPI(320, 240);
-TFT_Touch touch = TFT_Touch(DCS, DCLK, DIN, DOUT);
+// Create a separate VSPI instance for touch
+SPIClass touchSpi = SPIClass(VSPI);
+
+// Touch driver using the separate SPI bus
+XPT2046_Touchscreen ts(XPT2046_CS, XPT2046_IRQ);
+
+// Display
+TFT_eSPI tft = TFT_eSPI(320, 240);  // Landscape dimensions
 
 void setup() {
     Serial.begin(115200);
     delay(1000);
-    Serial.println("=== Hardware Test ===");
+    Serial.println("=== Hardware Test (witnessmenow config) ===");
     
-    // Init TFT
+    // ─── Init Touch (separate VSPI bus) ───────────────────────────────────────
+    touchSpi.begin(XPT2046_CLK, XPT2046_MISO, XPT2046_MOSI, XPT2046_CS);
+    ts.begin(touchSpi);
+    ts.setRotation(1);  // Landscape
+    
+    // ─── Init TFT (HSPI bus via TFT_eSPI) ─────────────────────────────────────
     tft.begin();
-    tft.setRotation(1);  // Landscape
+    tft.setRotation(1);  // Landscape 320x240
     
     // Fill BLACK first
     tft.fillScreen(TFT_BLACK);
@@ -54,23 +74,29 @@ void setup() {
     tft.setTextColor(TFT_BLACK, TFT_YELLOW);
     tft.drawString("YELLOW", 200, 170, 4);
     
-    // Init touch
-    touch.setCal(526, 3443, 750, 3377, 320, 240, 1);
-    
     Serial.println("Display test: 4 colored quadrants");
     Serial.println("Touch the screen - coordinates will print here");
     Serial.println("If colors are correct, TFT_eSPI + User_Setup.h are OK");
-    Serial.println("If B&W, User_Setup.h is wrong or TFT driver is wrong");
+    Serial.println("If B&W or wrong colors, check User_Setup.h");
 }
 
 void loop() {
-    if (touch.Pressed()) {
-        uint16_t x = touch.X();
-        uint16_t y = touch.Y();
-        Serial.printf("Touch: x=%d y=%d\n", x, y);
+    if (ts.touched()) {
+        TS_Point p = ts.getPoint();
+        Serial.printf("Touch: raw x=%d y=%d z=%d\n", p.x, p.y, p.z);
+        
+        // Map raw touch coordinates to screen coordinates (landscape)
+        int16_t screenX = map(p.x, 200, 3700, 0, 320);
+        int16_t screenY = map(p.y, 240, 3800, 0, 240);
+        
+        // Clamp to screen bounds
+        screenX = constrain(screenX, 0, 319);
+        screenY = constrain(screenY, 0, 239);
+        
+        Serial.printf("  mapped: x=%d y=%d\n", screenX, screenY);
         
         // Draw a small circle where touched
-        tft.fillCircle(x, y, 5, TFT_WHITE);
+        tft.fillCircle(screenX, screenY, 5, TFT_WHITE);
     }
     delay(50);
 }

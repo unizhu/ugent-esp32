@@ -4,22 +4,24 @@
  * Firmware for ESP32-2432S028R (2.8" TFT + Touch)
  * Displays UGENT agent status, tasks, and enables human-in-the-loop interaction.
  *
- * DISPLAY & COLOR: matches vendor LVGL_Arduino.ino example exactly:
- *   - ILI9341_2_DRIVER in User_Setup.h (vendor's exact file)
+ * DISPLAY: matches witnessmenow/ESP32-Cheap-Yellow-Display proven config:
+ *   - ILI9341_2_DRIVER in User_Setup.h
+ *   - USE_HSPI_PORT — display on HSPI (SPI2), MISO=GPIO12
+ *   - TFT_RST -1 — reset tied to board reset, NOT GPIO 12
  *   - LV_COLOR_16_SWAP = 0 in lv_conf.h
  *   - pushColors(..., true) in flush callback
  *   - setRotation(1) for landscape 320x240
  *
- * TOUCH: matches vendor LVGL_Arduino.ino example exactly:
- *   - TFT_Touch library with bit-banged GPIO on pins 33,25,32,39
- *   - touch.setCal(526, 3443, 750, 3377, 320, 240, 1)
+ * TOUCH: separate VSPI bus via XPT2046_Touchscreen library:
+ *   - CLK=25, MOSI=32, MISO=39, CS=33, IRQ=36
  *   - Rate-limited to every 50ms to minimize blocking
  */
 
 #include <Arduino.h>
 #include <lvgl.h>
 #include <TFT_eSPI.h>
-#include <TFT_Touch.h>
+#include <XPT2046_Touchscreen.h>
+#include <SPI.h>
 #include <WiFi.h>
 
 #include "config.h"
@@ -33,12 +35,24 @@
 static const uint16_t screenWidth  = 320;
 static const uint16_t screenHeight = 240;
 
+// ─── Touch pins (separate VSPI bus) ───────────────────────────────────────────
+#define XPT2046_CLK  25
+#define XPT2046_MISO 39
+#define XPT2046_MOSI 32
+#define XPT2046_CS   33
+#define XPT2046_IRQ  36
+
 // ─── Globals ───────────────────────────────────────────────────────────────────
 
 static TFT_eSPI tft = TFT_eSPI(screenWidth, screenHeight);
 
-// Touch — same pins and library as vendor LVGL example
-static TFT_Touch touch = TFT_Touch(33, 25, 32, 39);  // CS, CLK, DIN, DOUT
+// Touch — separate VSPI instance (display uses HSPI)
+static SPIClass touchSpi = SPIClass(VSPI);
+static XPT2046_Touchscreen ts(XPT2046_CS, XPT2046_IRQ);
+
+// Touch calibration range (from witnessmenow example)
+static uint16_t touchMinX = 200, touchMaxX = 3700;
+static uint16_t touchMinY = 240,  touchMaxY = 3800;
 
 static NvsStorage  nvs;
 static WifiManager wifi;
@@ -75,10 +89,9 @@ void my_disp_flush(lv_disp_drv_t *disp, const lv_area_t *area, lv_color_t *color
     lv_disp_flush_ready(disp);
 }
 
-// ─── Touch Read (TFT_Touch library, rate-limited) ───────────────────────────────
-// Same as vendor LVGL_Arduino.ino but with 50ms rate limiting.
-// TFT_Touch uses bit-banged GPIO with delay(1) calls (~20ms per read).
-// Rate limiting prevents it from blocking the LVGL render loop.
+// ─── Touch Read (XPT2046_Touchscreen on separate VSPI, rate-limited) ───────
+// Touch uses a separate VSPI bus from the display (HSPI), no SPI conflict.
+// Rate-limited to every 50ms.
 
 void my_touchpad_read(lv_indev_drv_t *indev_driver, lv_indev_data_t *data) {
     unsigned long now = millis();
@@ -86,13 +99,22 @@ void my_touchpad_read(lv_indev_drv_t *indev_driver, lv_indev_data_t *data) {
     // Rate limit: only actually read hardware every 50ms
     if (now - lastTouchRead >= 50) {
         lastTouchRead = now;
-        bool touched = touch.Pressed();
+        bool touched = ts.touched();
 
         if (!touched) {
             lastTouched = false;
         } else {
-            lastTouchX = touch.X();
-            lastTouchY = touch.Y();
+            TS_Point p = ts.getPoint();
+            // Auto-calibrate min/max
+            if (p.x < touchMinX) touchMinX = p.x;
+            if (p.x > touchMaxX) touchMaxX = p.x;
+            if (p.y < touchMinY) touchMinY = p.y;
+            if (p.y > touchMaxY) touchMaxY = p.y;
+            // Map to screen coordinates
+            lastTouchX = map(p.x, touchMinX, touchMaxX, 0, screenWidth);
+            lastTouchY = map(p.y, touchMinY, touchMaxY, 0, screenHeight);
+            lastTouchX = constrain(lastTouchX, 0, screenWidth - 1);
+            lastTouchY = constrain(lastTouchY, 0, screenHeight - 1);
             lastTouched = true;
         }
     }
@@ -116,10 +138,12 @@ static bool init_hardware() {
     tft.setRotation(1);  // Landscape orientation
     tft.fillScreen(TFT_BLACK);
 
-    // Touch init — exact same as vendor LVGL example
-    touch.setCal(526, 3443, 750, 3377, 320, 240, 1);
+    // Touch init — separate VSPI bus (display uses HSPI)
+    touchSpi.begin(XPT2046_CLK, XPT2046_MISO, XPT2046_MOSI, XPT2046_CS);
+    ts.begin(touchSpi);
+    ts.setRotation(1);  // Landscape
 
-    Serial.println("[UGENT] TFT + Touch initialized (vendor config)");
+    Serial.println("[UGENT] TFT + Touch initialized (witnessmenow config)");
 
     // Backlight PWM (compatible with ESP32 Core 2.x and 3.x)
     ugent_ledc_init(LCD_BL_PIN, BACKLIGHT_PWM_CHANNEL,

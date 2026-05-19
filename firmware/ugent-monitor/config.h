@@ -4,10 +4,10 @@
  * Hardware: ESP32-2432S028R (2.8" 320x240 ILI9341 + XPT2046)
  * Framework: Arduino + LVGL 8.x + TFT_eSPI
  *
- * CONFIGURATION: Use the vendor's exact User_Setup.h from:
- *   2.8inch_ESP32-2432S028R/1-Demo/Demo_Arduino/3_4-4_2.8-LVGL_Arduino/
- *   TFT_eSPI bottom layer replacement file/User_Setup.h
+ * CONFIGURATION: Use the User_Setup.h from:
+ *   firmware/User_Setup.h
  *   Copy to ~/Documents/Arduino/libraries/TFT_eSPI/User_Setup.h
+ *   Based on witnessmenow/ESP32-Cheap-Yellow-Display proven config
  */
 #ifndef CONFIG_H
 #define CONFIG_H
@@ -30,12 +30,14 @@
 #define SCREEN_WIDTH  320
 #define SCREEN_HEIGHT 240
 
-// Display pins — configured in TFT_eSPI's User_Setup.h (vendor version)
-// TFT_MOSI=13, TFT_SCLK=14, TFT_CS=15, TFT_DC=2, TFT_RST=12, TFT_BL=21
+// Display pins — configured in TFT_eSPI's User_Setup.h
+// TFT_MOSI=13, TFT_SCLK=14, TFT_CS=15, TFT_DC=2, TFT_MISO=12, TFT_BL=21
+// TFT_RST=-1 (tied to board reset, not a GPIO)
+// USE_HSPI_PORT — display on HSPI (SPI2)
 
-// Touch pins — used by TFT_Touch library (bit-banged GPIO)
-// Same as vendor LVGL example: CS=33, CLK=25, DIN=32, DOUT=39
-// Touch calibration: setCal(526, 3443, 750, 3377, 320, 240, 1)
+// Touch — separate VSPI bus via XPT2046_Touchscreen library
+// CLK=25, MOSI=32, MISO=39, CS=33, IRQ=36
+// Auto-calibrated in touch read callback
 // Backlight PWM (GPIO 21 on ESP32-2432S028R)
 #define LCD_BL_PIN            21
 #define BACKLIGHT_PWM_CHANNEL 0

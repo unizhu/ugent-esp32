@@ -13,18 +13,21 @@ The UGENT ESP32 Monitor connects to your UGENT server via WiFi and displays:
 
 Communication uses HTTP polling (5s interval) with SSE (Server-Sent Events) for real-time event streaming.
 
-### v1.3.0 Changes (current)
+### v1.4.0 Changes (current)
 
-- **Complete rewrite to match vendor LVGL demo exactly** — Previous custom SPI approaches (HSPI/VSPI separation, raw XPT2046 reads) all produced B&W display and flickering. This version uses the exact same code patterns as the vendor's working `LVGL_Arduino.ino` example.
-- **Restored TFT_Touch library** — Uses the same bit-banged GPIO touch library as the vendor demo (pins 33,25,32,39). Rate-limited to 50ms reads to minimize `delay(1)` blocking.
-- **Single LVGL draw buffer** — Matches vendor's `screenWidth * screenHeight / 4` buffer size.
-- **Vendor's exact User_Setup.h** — Uses `ILI9341_2_DRIVER`, `TOUCH_CS 33`, `SPI_FREQUENCY 40000000`. No `USE_HSPI_PORT` — DO NOT add it, HSPI MISO defaults to GPIO 12 = TFT_RST, causing color corruption.
-- **Upload speed: 460800 baud**
+- **Fixed pin assignments based on witnessmenow/ESP32-Cheap-Yellow-Display** — GPIO 12 is TFT MISO, NOT reset. The display reset is tied to board reset (`TFT_RST -1`). Previous configs wrongly assigned GPIO 12 as `TFT_RST`, causing color corruption.
+- **Display on HSPI, touch on separate VSPI** — `USE_HSPI_PORT` is now correctly defined. Display uses HSPI (SPI2), touch uses a separate `SPIClass(VSPI)` instance with XPT2046_Touchscreen library.
+- **Replaced TFT_Touch with XPT2046_Touchscreen** — The TFT_Touch library uses bit-banged GPIO which conflicts with TFT_eSPI's SPI. XPT2046_Touchscreen uses proper hardware SPI on the separate VSPI bus.
+- **SPI frequency 55MHz** — Matches witnessmenow reference, reliable on all board revisions.
 
-### v1.2.0 Changes (superseded by v1.3.0)
+### v1.3.0 Changes (superseded by v1.4.0)
 
-- Attempted HSPI/VSPI SPI bus separation — did not fix B&W + flickering on hardware
-- Removed TFT_Touch dependency in favor of raw XPT2046 SPI reads
+- Rewrote to match Waveshare vendor LVGL demo — but vendor's pin mapping was WRONG
+- GPIO 12 was incorrectly labeled as TFT_RST in vendor docs; it's actually TFT_MISO
+
+### v1.2.0 Changes (superseded)
+
+- Attempted HSPI/VSPI SPI bus separation — direction was correct but pin mapping was wrong
 
 ## Hardware
 
@@ -122,12 +125,12 @@ Open **Sketch > Include Library > Manage Libraries...** and install:
 |---------|--------|---------|-------|
 | **TFT_eSPI** | Bodmer | latest | TFT display driver for ILI9341 |
 | **lvgl** | LVGL | **8.x** (NOT 9.x) | UI framework — must use v8 |
-| **TFT_Touch** | Rowboteer | latest | Touch driver for XPT2046 (included in vendor demo) |
+| **XPT2046_Touchscreen** | Paul Stoffregen | latest | Touch driver — separate VSPI bus |
 | **ArduinoJson** | Benoit Blanchon | 7.x | JSON parsing |
 
 > **Important:** LVGL 9.x has a completely different API. You MUST install LVGL 8.x. In Library Manager, search "lvgl", click the version dropdown, and select the latest 8.x release (e.g., 8.4.0).
 >
-> **TFT_Touch library:** Install from the vendor demo folder at `2.8inch_ESP32-2432S028R/1-Demo/Demo_Arduino/libraries/TFT_Touch-master/`. Copy the entire `TFT_Touch-master` folder to your Arduino `libraries/` directory.
+> **XPT2046_Touchscreen library:** Install from Library Manager — search "XPT2046" by Paul Stoffregen. This uses hardware SPI on a separate VSPI bus, avoiding conflicts with the display HSPI bus.
 
 ### Step 4 — Configure TFT_eSPI (User_Setup.h)
 
@@ -151,12 +154,13 @@ cp ugent-esp32/firmware/User_Setup.h ~/Documents/Arduino/libraries/TFT_eSPI/User
 copy ugent-esp32\firmware\User_Setup.h "%USERPROFILE%\Documents\Arduino\libraries\TFT_eSPI\User_Setup.h"
 ```
 
-**Key settings in this file (based on proven vendor configuration):**
+**Key settings (based on witnessmenow/ESP32-Cheap-Yellow-Display):**
 - `#define ILI9341_2_DRIVER` — Alternative ILI9341 driver (better compatibility)
-- `#define TOUCH_CS 33` — Touch chip select (TFT_eSPI inits GPIO 33; TFT_Touch also uses it)
-- `#define SPI_FREQUENCY 40000000` — 40MHz display SPI (reliable across all board revisions)
-- `#define SPI_TOUCH_FREQUENCY 2000000` — 2MHz touch SPI
-- No `USE_HSPI_PORT` — DO NOT add this! HSPI MISO defaults to GPIO 12 which conflicts with TFT_RST, causing color corruption
+- `#define TFT_MISO 12` — GPIO 12 is display MISO (NOT reset!)
+- `#define TFT_RST -1` — Reset tied to board reset (not a GPIO)
+- `#define USE_HSPI_PORT` — Display on HSPI (SPI2), touch on separate VSPI
+- `#define SPI_FREQUENCY 55000000` — 55MHz display SPI
+- No `TOUCH_CS` — Touch uses separate XPT2046_Touchscreen library on VSPI
 
 **Option B — Manual configuration**
 
@@ -166,17 +170,17 @@ If you prefer to edit manually, the minimum required settings are:
 #define ILI9341_2_DRIVER
 #define TFT_WIDTH  240
 #define TFT_HEIGHT 320
+#define TFT_MISO 12
 #define TFT_MOSI 13
 #define TFT_SCLK 14
 #define TFT_CS   15
 #define TFT_DC    2
-#define TFT_RST  12
+#define TFT_RST  -1
 #define TFT_BL   21
 #define TFT_BACKLIGHT_ON HIGH
-#define TOUCH_CS 33
-#define SPI_FREQUENCY         40000000
+#define USE_HSPI_PORT
+#define SPI_FREQUENCY         55000000
 #define SPI_READ_FREQUENCY    20000000
-#define SPI_TOUCH_FREQUENCY   2000000
 #define LOAD_GLCD
 #define LOAD_FONT2
 #define LOAD_FONT4
@@ -511,7 +515,7 @@ Ensure your UGENT server has the **channel-web** plugin enabled and is accessibl
 | Error | Fix |
 |-------|-----|
 | `lv_conf.h: No such file or directory` | Place `lv_conf.h` **next to** `lvgl/` in `libraries/`, NOT inside it. Use the pre-configured `firmware/lv_conf.h`. |
-| `TFT_Touch.h: No such file or directory` | Install TFT_Touch library from vendor demo folder |
+| `XPT2046_Touchscreen.h: No such file or directory` | Install XPT2046_Touchscreen by Paul Stoffregen (Library Manager, search "XPT2046") |
 | `TFT_eSPI.h: No such file or directory` | Install TFT_eSPI library |
 | `lvgl.h: No such file or directory` | Install LVGL library (version 8.x) |
 | `ArduinoJson.h: No such file or directory` | Install ArduinoJson library |
@@ -522,11 +526,11 @@ Ensure your UGENT server has the **channel-web** plugin enabled and is accessibl
 
 ### Touch Not Working
 
-- The firmware uses the **TFT_Touch** library (same as vendor demo) with bit-banged GPIO on pins 33,25,32,39
-- Verify `TFT_Touch` library is installed from vendor demo: `2.8inch_ESP32-2432S028R/1-Demo/Demo_Arduino/libraries/TFT_Touch-master/`
-- Calibration uses `touch.setCal(526, 3443, 750, 3377, 320, 240, 1)` — same as vendor LVGL example
-- If touch coordinates are swapped/inverted, adjust the calibration values
-- Touch reads are rate-limited to every 50ms to minimize blocking from `delay(1)` calls
+- The firmware uses **XPT2046_Touchscreen** library on a separate VSPI bus (display uses HSPI)
+- Install from Library Manager: search "XPT2046" by Paul Stoffregen
+- Touch pins: CLK=25, MOSI=32, MISO=39, CS=33, IRQ=36
+- Auto-calibration in touch read callback — touch all corners to calibrate
+- Touch reads are rate-limited to every 50ms to minimize blocking
 
 ### WiFi Won't Connect
 
@@ -537,12 +541,13 @@ Ensure your UGENT server has the **channel-web** plugin enabled and is accessibl
 
 ### Display Shows Garbage / Wrong Colors
 
-- **Grey vertical lines on some colors, others fine:** Most likely cause: `USE_HSPI_PORT` defined in `User_Setup.h`. When enabled, HSPI claims GPIO 12 as MISO (default), but GPIO 12 is TFT_RST. This conflict corrupts the ILI9341 initialization. **Fix:** Remove `USE_HSPI_PORT` from `User_Setup.h`. ESP32's GPIO matrix routes VSPI to any pins without conflicts.
-- **`User_Setup.h` must define `TOUCH_CS 33`:** TFT_eSPI initializes GPIO 33 during `begin()`. The TFT_Touch library also uses GPIO 33 for bit-banged touch reads — they coexist fine (same as vendor demo).
-- **Flashing / flickering:** Same root cause — remove `USE_HSPI_PORT` and use the default VSPI bus.
+- **Grey vertical lines on some colors, others fine:** GPIO 12 is TFT MISO, NOT TFT_RST. If `TFT_RST` is set to 12, the ILI9341 reset signal gets corrupted. **Fix:** Set `#define TFT_RST -1` and `#define TFT_MISO 12` in User_Setup.h.
+- **Completely black & white:** Missing `#define USE_HSPI_PORT`. The display is wired to HSPI pins (13/14/15/12). Without this flag, TFT_eSPI uses the wrong SPI bus. **Fix:** Add `#define USE_HSPI_PORT` to User_Setup.h.
+- **3/4 screen flashing, 1/4 stable:** Same root cause — wrong SPI bus or wrong pin assignments. Use the exact User_Setup.h from `firmware/User_Setup.h`.
+- **Touch not working with TFT_Touch:** TFT_Touch bit-bangs GPIO 33, which conflicts with TFT_eSPI SPI. **Fix:** Use XPT2046_Touchscreen library with separate VSPI (CLK=25, MOSI=32, MISO=39, CS=33).
 - Verify `User_Setup.h` has `#define ILI9341_2_DRIVER`
 - Make sure `LV_COLOR_16_SWAP` is `0` in `lv_conf.h`
-- Try lowering `SPI_FREQUENCY` in `User_Setup.h` to `20000000` if still having issues
+- Try lowering `SPI_FREQUENCY` to `20000000` if still having issues
 
 ## Development Notes
 

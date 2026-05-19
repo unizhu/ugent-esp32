@@ -1,22 +1,17 @@
 //  TFT_eSPI User_Setup.h for ESP32-2432S028R (Cheap Yellow Display)
 //
+//  Based on witnessmenow/ESP32-Cheap-Yellow-Display configuration:
+//    https://github.com/witnessmenow/ESP32-Cheap-Yellow-Display
+//
+//  KEY FACTS (from CYD hardware documentation):
+//    - Display (ILI9341) is on HSPI bus: MOSI=13, SCLK=14, CS=15, DC=2, MISO=12
+//    - Touch (XPT2046) is on a SEPARATE VSPI bus: CLK=25, MOSI=32, MISO=39, CS=33, IRQ=36
+//    - SD card is on the default VSPI bus: MOSI=23, SCK=18, MISO=19, SS=5
+//    - GPIO 12 is TFT MISO (NOT reset!) — the display reset is tied to board reset
+//    - Backlight: GPIO 21
+//
 //  INSTALLATION:
-//    Copy this file to:
-//      ~/Documents/Arduino/libraries/TFT_eSPI/User_Setup.h
-//
-//    Also copy lv_conf.h to:
-//      ~/Documents/Arduino/libraries/lv_conf.h
-//
-//  Based on Waveshare vendor configuration (proven working):
-//    - ILI9341_2_DRIVER
-//    - NO USE_HSPI_PORT (ESP32 GPIO matrix routes VSPI to any pins)
-//    - TOUCH_CS 33 defined (TFT_eSPI inits GPIO 33; TFT_Touch also uses it)
-//    - SPI 40MHz (safe across all board revisions)
-//
-//  IMPORTANT:
-//    Do NOT define USE_HSPI_PORT! HSPI default MISO = GPIO 12 = TFT_RST.
-//    This conflict causes color corruption (grey vertical lines on some colors).
-//    ESP32 GPIO matrix allows VSPI to use pins 13/14/15 without any conflict.
+//    Copy this file to: ~/Documents/Arduino/libraries/TFT_eSPI/User_Setup.h
 
 #define USER_SETUP_INFO "UGENT_CYD_2432S028R"
 
@@ -27,23 +22,29 @@
 #define TFT_WIDTH  240
 #define TFT_HEIGHT 320
 
-// ─── ESP32 Display SPI Pins ───────────────────────────────────────────────────
-//  These match the HSPI default pins (13/14/15) but VSPI can use them too
-//  via the ESP32 GPIO matrix — no USE_HSPI_PORT needed.
-#define TFT_MOSI 13
-#define TFT_SCLK 14
-#define TFT_CS   15
-#define TFT_DC    2
-#define TFT_RST  12
-#define TFT_BL   21
+// ─── ESP32 Display SPI Pins (HSPI bus) ────────────────────────────────────────
+//  The CYD display is wired to HSPI default pins.
+//  USE_HSPI_PORT is REQUIRED so TFT_eSPI uses the HSPI hardware.
+#define TFT_MISO 12    // Display MISO (GPIO 12 is TFT_SDO on CYD schematic)
+#define TFT_MOSI 13    // Display MOSI
+#define TFT_SCLK 14    // Display SCK
+#define TFT_CS   15    // Chip select
+#define TFT_DC    2    // Data/Command
+#define TFT_RST  -1    // Reset tied to board reset (not a GPIO)
+#define TFT_BL   21    // Backlight
+
+// ─── SPI Port ──────────────────────────────────────────────────────────────────
+//  CRITICAL: Display is on HSPI. Touch uses a separate VSPI instance.
+#define USE_HSPI_PORT
 
 // ─── Backlight ────────────────────────────────────────────────────────────────
 #define TFT_BACKLIGHT_ON HIGH
 
 // ─── Touch ────────────────────────────────────────────────────────────────────
-//  Define TOUCH_CS so TFT_eSPI initializes GPIO 33 during begin().
-//  Actual touch reads are done by TFT_Touch library (bit-banged on 33,25,32,39).
-#define TOUCH_CS 33
+//  DO NOT define TOUCH_CS here!
+//  Touch is on a completely separate VSPI bus (CLK=25, MOSI=32, MISO=39, CS=33).
+//  Using XPT2046_Touchscreen library with SPIClass(VSPI).
+//  If TOUCH_CS is defined, TFT_eSPI will try to touch GPIO 33 on the wrong SPI bus.
 
 // ─── Fonts ────────────────────────────────────────────────────────────────────
 #define LOAD_GLCD
@@ -56,8 +57,6 @@
 #define SMOOTH_FONT
 
 // ─── SPI Speed ────────────────────────────────────────────────────────────────
-//  40MHz is reliable across all ESP32-2432S028R board revisions.
-//  Vendor uses 55-65MHz but some boards have longer traces.
-#define SPI_FREQUENCY         40000000
+#define SPI_FREQUENCY         55000000
 #define SPI_READ_FREQUENCY    20000000
-#define SPI_TOUCH_FREQUENCY   2000000
+// SPI_TOUCH_FREQUENCY not needed — touch is on separate VSPI bus
