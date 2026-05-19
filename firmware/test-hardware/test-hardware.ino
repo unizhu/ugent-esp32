@@ -34,7 +34,7 @@ SPIClass touchSpi = SPIClass(VSPI);
 XPT2046_Touchscreen ts(XPT2046_CS, XPT2046_IRQ);
 
 // Display
-TFT_eSPI tft = TFT_eSPI(320, 240);  // Landscape dimensions
+TFT_eSPI tft = TFT_eSPI();  // Default ctor uses TFT_WIDTH/TFT_HEIGHT from User_Setup.h
 
 void setup() {
     Serial.begin(115200);

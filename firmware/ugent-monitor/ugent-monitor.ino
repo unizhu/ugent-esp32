@@ -44,7 +44,7 @@ static const uint16_t screenHeight = 240;
 
 // ─── Globals ───────────────────────────────────────────────────────────────────
 
-static TFT_eSPI tft = TFT_eSPI(screenWidth, screenHeight);
+static TFT_eSPI tft = TFT_eSPI();  // Default ctor uses TFT_WIDTH/TFT_HEIGHT (portrait) from User_Setup.h
 
 // Touch — separate VSPI instance (display uses HSPI)
 static SPIClass touchSpi = SPIClass(VSPI);
