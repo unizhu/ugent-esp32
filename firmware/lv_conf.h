@@ -33,9 +33,14 @@
 
 /* ==================== MEMORY ==================== */
 
-/* Size of the graphics buffer (in pixels) — set in config.h as LVGL_BUF_SIZE */
+/* LVGL internal memory for objects/widgets.
+ * This is a STATIC allocation in BSS — counts against ESP32's ~160KB DRAM0.
+ * With WiFi/NVS/SSE linked, available BSS is ~80KB.
+ * 32KB is enough for 4-tab UI with labels/buttons/text areas (~50 objects).
+ * DO NOT exceed 48KB or DRAM will overflow on link.
+ */
 #define LV_MEM_CUSTOM 0
-#define LV_MEM_SIZE (64U * 1024U)          /* 64KB heap for LVGL objects */
+#define LV_MEM_SIZE (32U * 1024U)          /* 32KB — reduced from 64KB to fit DRAM0 with WiFi/NVS/SSE */
 #define LV_MEM_ADR 0
 #define LV_MEM_BUF_MAX_NUM 16
 

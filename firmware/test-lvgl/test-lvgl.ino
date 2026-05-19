@@ -15,7 +15,8 @@
  *   - XPT2046_Touchscreen by Paul Stoffregen
  *   - LVGL 8.x (install + move examples/demos into src/)
  *   - Copy firmware/User_Setup.h to TFT_eSPI library
- *   - Copy firmware/lv_conf.h NEXT TO the lvgl library folder
+ *   - Copy firmware/lv_conf.h to ~/Documents/Arduino/libraries/lv_conf.h
+ *     (NEXT TO the lvgl folder, NOT inside it — this is how LVGL 8.x Arduino finds it)
  */
 
 #include <lvgl.h>

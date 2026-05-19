@@ -60,12 +60,12 @@ static UgentClient ugent;
 static SseClient   sse;
 static UIManager   ui;
 
-// LVGL display driver — witnessmenow pattern: static partial buffer
-// screenWidth * screenHeight / 10 = 7680 pixels (15KB)
-// Larger full-frame buffers (screenWidth*screenHeight/4 = 38KB) may overflow
-// DRAM BSS when WiFi/SSE/NVS modules are linked.
+// LVGL display driver — heap-allocated draw buffer
+// Static buffer in BSS overflows DRAM0 when WiFi/NVS/SSE are linked
+// (LV_MEM_SIZE 32KB in BSS + 15KB draw buffer + WiFi stacks > 160KB DRAM)
+// Heap allocation avoids BSS; malloc on ESP32 always returns DMA-capable DRAM.
 static lv_disp_draw_buf_t draw_buf;
-static lv_color_t buf[screenWidth * screenHeight / 10];
+static lv_color_t* buf = nullptr;
 static lv_indev_drv_t indev_drv;
 
 // Touch rate limiting — only poll every 50ms to minimize blocking
@@ -164,9 +164,15 @@ static bool init_hardware() {
 static bool init_lvgl() {
     lv_init();
 
-    // Static draw buffer — witnessmenow pattern
-    // Using partial buffer (7680 pixels) instead of full frame (76800 pixels)
-    lv_disp_draw_buf_init(&draw_buf, buf, NULL, screenWidth * screenHeight / 10);
+    // Heap draw buffer — keeps BSS small (LV_MEM_SIZE already uses 32KB BSS)
+    // screenWidth * 10 = 3200 pixels = 6.4KB on heap (DMA-capable DRAM)
+    uint32_t buf_size = screenWidth * 10;
+    buf = (lv_color_t*)malloc(buf_size * sizeof(lv_color_t));
+    if (!buf) {
+        Serial.println("[UGENT] FAIL: LVGL draw buffer malloc");
+        return false;
+    }
+    lv_disp_draw_buf_init(&draw_buf, buf, NULL, buf_size);
 
     static lv_disp_drv_t disp_drv;
     lv_disp_drv_init(&disp_drv);
