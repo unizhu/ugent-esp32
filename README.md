@@ -13,18 +13,18 @@ The UGENT ESP32 Monitor connects to your UGENT server via WiFi and displays:
 
 Communication uses HTTP polling (5s interval) with SSE (Server-Sent Events) for real-time event streaming.
 
-### v1.2.0 Changes
+### v1.3.0 Changes (current)
 
-- **Fixed B&W + flickering (SPI hardware conflict)** — Root cause: both display (TFT_eSPI) and touch (SPIClass) were sharing SPI3 (VSPI). Every touch read reconfigured the SPI3 hardware, corrupting display data. Fix: Added `USE_HSPI_PORT` to User_Setup.h so display uses HSPI (SPI2), touch stays on VSPI (SPI3). Proven approach from ropg/LVGL_CYD.
-- **Fixed User_Setup.h** — Removed `TOUCH_CS` definition (TFT_eSPI must NOT control GPIO 33), added `USE_HSPI_PORT` for HSPI bus
-- **Removed TFT_Touch dependency** — no external touch library needed, uses ESP32 hardware SPI directly
+- **Complete rewrite to match vendor LVGL demo exactly** — Previous custom SPI approaches (HSPI/VSPI separation, raw XPT2046 reads) all produced B&W display and flickering. This version uses the exact same code patterns as the vendor's working `LVGL_Arduino.ino` example.
+- **Restored TFT_Touch library** — Uses the same bit-banged GPIO touch library as the vendor demo (pins 33,25,32,39). Rate-limited to 50ms reads to minimize `delay(1)` blocking.
+- **Single LVGL draw buffer** — Matches vendor's `screenWidth * screenHeight / 4` buffer size.
+- **Vendor's exact User_Setup.h** — Uses `ILI9341_2_DRIVER`, `TOUCH_CS 33`, `SPI_FREQUENCY 55000000`. No `USE_HSPI_PORT` — display and touch share the default SPI bus (same as vendor).
+- **Upload speed: 460800 baud**
 
-### v1.1.0 Changes (superseded by v1.2.0)
+### v1.2.0 Changes (superseded by v1.3.0)
 
-- Replaced TFT_Touch with raw hardware SPI for XPT2046
-- Corrected byte-swap: `LV_COLOR_16_SWAP=0` + `pushColors(...,true)`
-- Added double-buffered draw buffer
-- **Still had B&W + flickering** — the real fix required separating SPI hardware peripherals (v1.2.0)
+- Attempted HSPI/VSPI SPI bus separation — did not fix B&W + flickering on hardware
+- Removed TFT_Touch dependency in favor of raw XPT2046 SPI reads
 
 ## Hardware
 
@@ -122,11 +122,12 @@ Open **Sketch > Include Library > Manage Libraries...** and install:
 |---------|--------|---------|-------|
 | **TFT_eSPI** | Bodmer | latest | TFT display driver for ILI9341 |
 | **lvgl** | LVGL | **8.x** (NOT 9.x) | UI framework — must use v8 |
+| **TFT_Touch** | Rowboteer | latest | Touch driver for XPT2046 (included in vendor demo) |
 | **ArduinoJson** | Benoit Blanchon | 7.x | JSON parsing |
 
 > **Important:** LVGL 9.x has a completely different API. You MUST install LVGL 8.x. In Library Manager, search "lvgl", click the version dropdown, and select the latest 8.x release (e.g., 8.4.0).
 >
-> **No external touch library needed.** The firmware uses raw hardware SPI (`SPIClass(VSPI)` on SPI3) to communicate with the XPT2046 touch controller. The display uses a separate SPI hardware peripheral (`SPIClass(HSPI)` on SPI2 via TFT_eSPI). This hardware separation is **critical** — using the same SPI peripheral for both causes B&W colors and flickering.
+> **TFT_Touch library:** Install from the vendor demo folder at `2.8inch_ESP32-2432S028R/1-Demo/Demo_Arduino/libraries/TFT_Touch-master/`. Copy the entire `TFT_Touch-master` folder to your Arduino `libraries/` directory.
 
 ### Step 4 — Configure TFT_eSPI (User_Setup.h)
 
@@ -150,11 +151,12 @@ cp ugent-esp32/firmware/User_Setup.h ~/Documents/Arduino/libraries/TFT_eSPI/User
 copy ugent-esp32\firmware\User_Setup.h "%USERPROFILE%\Documents\Arduino\libraries\TFT_eSPI\User_Setup.h"
 ```
 
-**Key settings in this file:**
+**Key settings in this file (matches vendor demo exactly):**
 - `#define ILI9341_2_DRIVER` — Alternative ILI9341 driver (better compatibility)
-- `#define USE_HSPI_PORT` — **CRITICAL!** Makes TFT_eSPI use HSPI (SPI2) for display. Without this, both display and touch share SPI3 (VSPI) → B&W colors + flickering
-- `TOUCH_CS` is NOT defined — TFT_eSPI must NOT touch GPIO 33 (our touch code handles it via separate SPIClass)
-- `#define SPI_FREQUENCY 40000000` — 40MHz (safe, reliable)
+- `#define TOUCH_CS 33` — Touch chip select (TFT_eSPI manages SPI touch freq)
+- `#define SPI_FREQUENCY 55000000` — 55MHz display SPI clock
+- `#define SPI_TOUCH_FREQUENCY 2500000` — 2.5MHz touch SPI clock
+- No `USE_HSPI_PORT` — display and touch share the default SPI bus (same as vendor demo)
 
 **Option B — Manual configuration**
 
@@ -171,8 +173,10 @@ If you prefer to edit manually, the minimum required settings are:
 #define TFT_RST  12
 #define TFT_BL   21
 #define TFT_BACKLIGHT_ON HIGH
-#define USE_HSPI_PORT        // CRITICAL! Display on HSPI/SPI2, touch on VSPI/SPI3
-// DO NOT define TOUCH_CS — touch is handled by separate SPIClass(VSPI)
+#define TOUCH_CS 33         // Touch chip select
+#define SPI_FREQUENCY  55000000
+#define SPI_READ_FREQUENCY 20000000
+#define SPI_TOUCH_FREQUENCY 2500000
 #define LOAD_GLCD
 #define LOAD_FONT2
 #define LOAD_FONT4
