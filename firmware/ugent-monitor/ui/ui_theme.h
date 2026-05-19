@@ -11,21 +11,24 @@
 #include "config.h"
 
 // ─── Color Helpers ────────────────────────────────────────────────────────────
+// VIVID palette — Catppuccin Mocha was too muted for 2.8" 16-bit TFT.
+// These are bright, saturated colors that are clearly visible.
+// TODO: tune to taste once we confirm colors render correctly.
 
-static inline lv_color_t color_bg()          { return lv_color_hex(0x1E1E2E); }
-static inline lv_color_t color_surface0()    { return lv_color_hex(0x313244); }
-static inline lv_color_t color_surface1()    { return lv_color_hex(0x45475A); }
-static inline lv_color_t color_surface2()    { return lv_color_hex(0x585B70); }
-static inline lv_color_t color_overlay0()    { return lv_color_hex(0x6C7086); }
-static inline lv_color_t color_text()        { return lv_color_hex(0xCDD6F4); }
-static inline lv_color_t color_subtext()     { return lv_color_hex(0xA6ADC8); }
-static inline lv_color_t color_blue()        { return lv_color_hex(0x89B4FA); }
-static inline lv_color_t color_green()       { return lv_color_hex(0xA6E3A1); }
-static inline lv_color_t color_red()         { return lv_color_hex(0xF38BA8); }
-static inline lv_color_t color_yellow()      { return lv_color_hex(0xF9E2AF); }
-static inline lv_color_t color_mauve()       { return lv_color_hex(0xCBA6F7); }
-static inline lv_color_t color_teal()        { return lv_color_hex(0x94E2D5); }
-static inline lv_color_t color_peach()       { return lv_color_hex(0xFAB387); }
+static inline lv_color_t color_bg()          { return lv_color_hex(0x0D1117); }  // Deep dark (GitHub dark)
+static inline lv_color_t color_surface0()    { return lv_color_hex(0x161B22); }  // Dark panel
+static inline lv_color_t color_surface1()    { return lv_color_hex(0x21262D); }  // Elevated panel
+static inline lv_color_t color_surface2()    { return lv_color_hex(0x30363D); }  // Border
+static inline lv_color_t color_overlay0()    { return lv_color_hex(0x8B949E); }  // Muted text
+static inline lv_color_t color_text()        { return lv_color_hex(0xF0F6FC); }  // Bright white text
+static inline lv_color_t color_subtext()     { return lv_color_hex(0xC9D1D9); }  // Secondary text
+static inline lv_color_t color_blue()        { return lv_color_hex(0x58A6FF); }  // Vivid blue
+static inline lv_color_t color_green()       { return lv_color_hex(0x3FB950); }  // Vivid green
+static inline lv_color_t color_red()         { return lv_color_hex(0xFF7B72); }  // Vivid red
+static inline lv_color_t color_yellow()      { return lv_color_hex(0xE3B341); }  // Vivid yellow
+static inline lv_color_t color_mauve()       { return lv_color_hex(0xD2A8FF); }  // Vivid purple
+static inline lv_color_t color_teal()        { return lv_color_hex(0x39D353); }  // Bright teal
+static inline lv_color_t color_peach()       { return lv_color_hex(0xFFA657); }  // Vivid orange
 
 // ─── Style Instances ──────────────────────────────────────────────────────────
 
