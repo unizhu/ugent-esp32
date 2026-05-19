@@ -4,22 +4,30 @@
  * Firmware for ESP32-2432S028R (2.8" TFT + Touch)
  * Displays UGENT agent status, tasks, and enables human-in-the-loop interaction.
  *
- * DISPLAY & COLOR: matches vendor LVGL_Arduino.ino example exactly:
- *   - ILI9341_2_DRIVER in User_Setup.h (vendor's exact file)
- *   - LV_COLOR_16_SWAP = 0 in lv_conf.h
- *   - pushColors(..., true) in flush callback
- *   - setRotation(1) for landscape 320x240
+ * HARDWARE NOTES:
+ *   Display (ILI9341) and Touch (XPT2046) are on SEPARATE SPI hardware.
+ *   - Display SPI (HSPI/SPI2): MOSI=13, SCLK=14, CS=15, DC=2, RST=12
+ *     (Requires USE_HSPI_PORT in TFT_eSPI User_Setup.h)
+ *   - Touch SPI (VSPI/SPI3):   MISO=39, MOSI=32, CS=33, CLK=25
+ *     (Uses SPIClass(VSPI) with remapped pins)
+ *   Both MUST be on different SPI peripherals or colors corrupt + flickering.
  *
- * TOUCH: matches vendor LVGL_Arduino.ino example exactly:
- *   - TFT_Touch library with bit-banged GPIO on pins 33,25,32,39
- *   - touch.setCal(526, 3443, 750, 3377, 320, 240, 1)
- *   - Rate-limited to every 50ms to minimize blocking
+ * COLOR NOTES:
+ *   ILI9341 over SPI needs byte-swapping for RGB565.
+ *   LV_COLOR_16_SWAP must be 0 (disabled) in lv_conf.h.
+ *   The display flush uses pushColors(..., true) to let TFT_eSPI handle the swap.
+ *   This matches the vendor example AND the official LVGL TFT_eSPI driver.
+ *
+ * TOUCH NOTES:
+ *   We use raw SPI (hardware SPIClass) for touch instead of the TFT_Touch library.
+ *   TFT_Touch uses bit-banged GPIO with multiple delay(1) calls that block for
+ *   ~20ms per read, causing display flickering. Hardware SPI is ~10x faster.
  */
 
 #include <Arduino.h>
 #include <lvgl.h>
 #include <TFT_eSPI.h>
-#include <TFT_Touch.h>
+#include <SPI.h>
 #include <WiFi.h>
 
 #include "config.h"
@@ -29,96 +37,131 @@
 #include "sse_client.h"
 #include "ui/ui_manager.h"
 
-// ─── Screen ────────────────────────────────────────────────────────────────────
-static const uint16_t screenWidth  = 320;
-static const uint16_t screenHeight = 240;
-
 // ─── Globals ───────────────────────────────────────────────────────────────────
 
-static TFT_eSPI tft = TFT_eSPI(screenWidth, screenHeight);
-
-// Touch — same pins and library as vendor LVGL example
-static TFT_Touch touch = TFT_Touch(33, 25, 32, 39);  // CS, CLK, DIN, DOUT
-
+static TFT_eSPI    tft;
 static NvsStorage  nvs;
 static WifiManager wifi;
 static UgentClient ugent;
 static SseClient   sse;
 static UIManager   ui;
 
-// LVGL display driver — single buffer like vendor example
+// LVGL display driver buffers
 static lv_disp_draw_buf_t draw_buf;
-static lv_color_t buf[screenWidth * screenHeight / 4];
+static lv_color_t* buf1 = nullptr;
+static lv_color_t* buf2 = nullptr;  // Double buffer for flicker-free rendering
 static lv_indev_drv_t indev_drv;
 
-// Touch rate limiting — only poll every 50ms to minimize blocking
-static unsigned long lastTouchRead = 0;
-static bool lastTouched = false;
-static uint16_t lastTouchX = 0;
-static uint16_t lastTouchY = 0;
+// Touch SPI — uses VSPI (SPI3) hardware bus for XPT2046.
+// Display uses HSPI (SPI2) via TFT_eSPI with USE_HSPI_PORT in User_Setup.h.
+// CRITICAL: Touch and display MUST be on different SPI hardware peripherals.
+// Using the same peripheral causes B&W colors and flickering.
+static SPIClass touchSPI(VSPI);
+
+// Last touch position (for LVGL continuity when released)
+static int16_t last_touch_x = 0;
+static int16_t last_touch_y = 0;
 
 // Backlight PWM
 static uint8_t currentBrightness = 128;
+
 // ─── Display Flush ─────────────────────────────────────────────────────────────
-// EXACT copy from vendor LVGL_Arduino.ino example
+// Matches vendor example and official LVGL TFT_eSPI driver:
+// pushColors with byteSwap=true, LV_COLOR_16_SWAP=0
 
-void my_disp_flush(lv_disp_drv_t *disp, const lv_area_t *area, lv_color_t *color_p) {
-    uint32_t w = (area->x2 - area->x1 + 1);
-    uint32_t h = (area->y2 - area->y1 + 1);
-
+static void disp_flush(lv_disp_drv_t* drv, const lv_area_t* area, lv_color_t* color_p) {
+    uint32_t w = area->x2 - area->x1 + 1;
+    uint32_t h = area->y2 - area->y1 + 1;
     tft.startWrite();
     tft.setAddrWindow(area->x1, area->y1, w, h);
-    tft.pushColors((uint16_t *)&color_p->full, w * h, true);
+    tft.pushColors((uint16_t*)color_p, w * h, true);
     tft.endWrite();
-
-    lv_disp_flush_ready(disp);
+    lv_disp_flush_ready(drv);
 }
 
-// ─── Touch Read (TFT_Touch library, rate-limited) ───────────────────────────────
-// Same as vendor LVGL_Arduino.ino but with 50ms rate limiting.
-// TFT_Touch uses bit-banged GPIO with delay(1) calls (~20ms per read).
-// Rate limiting prevents it from blocking the LVGL render loop.
+// ─── XPT2046 Touch via Hardware SPI ────────────────────────────────────────────
+// Direct SPI register reads — ~100x faster than bit-banged TFT_Touch library.
+// Based on ropg/LVGL_CYD implementation with pressure-based touch detection.
 
-void my_touchpad_read(lv_indev_drv_t *indev_driver, lv_indev_data_t *data) {
-    unsigned long now = millis();
+#define XPT2046_Z1_THRESHOLD 300
 
-    // Rate limit: only actually read hardware every 50ms
-    if (now - lastTouchRead >= 50) {
-        lastTouchRead = now;
-        bool touched = touch.Pressed();
+// Out of three values, returns average of the two closest together
+static int16_t besttwoavg(int16_t a, int16_t b, int16_t c) {
+    int16_t da = abs(a - b);
+    int16_t db = abs(b - c);
+    int16_t dc = abs(c - a);
+    if (da <= db && da <= dc) return (a + b) / 2;
+    if (db <= da && db <= dc) return (b + c) / 2;
+    return (a + c) / 2;
+}
 
-        if (!touched) {
-            lastTouched = false;
-        } else {
-            lastTouchX = touch.X();
-            lastTouchY = touch.Y();
-            lastTouched = true;
-        }
-    }
+static void touch_read(lv_indev_drv_t* drv, lv_indev_data_t* data) {    // Read pressure via Z1/Z2 measurement
+    touchSPI.beginTransaction(SPISettings(2000000, MSBFIRST, SPI_MODE0));
+    digitalWrite(TOUCH_CS, LOW);
+    touchSPI.transfer(0xB1);  // Z1 command
+    int16_t z1 = touchSPI.transfer16(0xC1) >> 3;  // Read Z1, start Z2
+    int16_t z2 = touchSPI.transfer16(0x91) >> 3;   // Read Z2, start X dummy
+    int16_t pressure = z1 + 4095 - z2;
 
-    if (!lastTouched) {
+    if (pressure < XPT2046_Z1_THRESHOLD) {
+        digitalWrite(TOUCH_CS, HIGH);
+        touchSPI.endTransaction();
         data->state = LV_INDEV_STATE_REL;
-    } else {
-        data->state = LV_INDEV_STATE_PR;
-        data->point.x = lastTouchX;
-        data->point.y = lastTouchY;
+        data->point.x = last_touch_x;
+        data->point.y = last_touch_y;
+        return;
     }
-}// ─── Hardware Init ─────────────────────────────────────────────────────────────
+
+    // Touch detected — read X,Y positions (3 samples for averaging)
+    touchSPI.transfer16(0x91);  // Dummy X read (first read is noisy)
+    int16_t x0 = touchSPI.transfer16(0xD1) >> 3;  // Y1
+    int16_t y0 = touchSPI.transfer16(0x91) >> 3;  // X1
+    int16_t x1 = touchSPI.transfer16(0xD1) >> 3;  // Y2
+    int16_t y1 = touchSPI.transfer16(0x91) >> 3;  // X2
+    int16_t x2 = touchSPI.transfer16(0xD0) >> 3;  // Y3 (power down)
+    int16_t y2 = touchSPI.transfer16(0x00) >> 3;  // X3 (power down)
+    digitalWrite(TOUCH_CS, HIGH);
+    touchSPI.endTransaction();
+
+    // Average of closest two readings (filter outliers)
+    int16_t rawY = besttwoavg(x0, x1, x2);
+    int16_t rawX = besttwoavg(y0, y1, y2);
+
+    // Map raw ADC to screen coordinates
+    // Vendor calibration: setCal(526, 3443, 750, 3377, 320, 240, 1)
+    // With axis swap=1, rawX maps to screen Y, rawY maps to screen X
+    int16_t x = map(rawY, TOUCH_CAL_XMIN, TOUCH_CAL_XMAX, 0, SCREEN_WIDTH - 1);
+    int16_t y = map(rawX, TOUCH_CAL_YMIN, TOUCH_CAL_YMAX, SCREEN_HEIGHT - 1, 0);
+
+    x = constrain(x, 0, SCREEN_WIDTH - 1);
+    y = constrain(y, 0, SCREEN_HEIGHT - 1);
+
+    last_touch_x = x;
+    last_touch_y = y;
+
+    data->point.x = x;
+    data->point.y = y;
+    data->state = LV_INDEV_STATE_PR;
+}
+// ─── Hardware Init ─────────────────────────────────────────────────────────────
 
 static bool init_hardware() {
     Serial.begin(115200);
     while (!Serial && millis() < 3000) { delay(10); }
     Serial.println("[UGENT] Boot");
 
-    // TFT init — same as vendor example
+    // TFT init
     tft.begin();
-    tft.setRotation(1);  // Landscape orientation
+    tft.setRotation(ROTATION);
     tft.fillScreen(TFT_BLACK);
 
-    // Touch init — exact same as vendor LVGL example
-    touch.setCal(526, 3443, 750, 3377, 320, 240, 1);
+    // Touch SPI init — XPT2046 on VSPI bus (SPI3), separate from display (HSPI/SPI2)
+    // Uses pins: CLK=25, MISO=39, MOSI=32, CS=33
+    touchSPI.begin(TOUCH_CLK, TOUCH_DOUT, TOUCH_DIN, TOUCH_CS);
+    pinMode(TOUCH_CS, OUTPUT);
+    digitalWrite(TOUCH_CS, HIGH);
 
-    Serial.println("[UGENT] TFT + Touch initialized (vendor config)");
+    Serial.println("[UGENT] Touch SPI initialized (VSPI hardware)");
 
     // Backlight PWM (compatible with ESP32 Core 2.x and 3.x)
     ugent_ledc_init(LCD_BL_PIN, BACKLIGHT_PWM_CHANNEL,
@@ -132,25 +175,36 @@ static bool init_hardware() {
 }
 
 // ─── LVGL Init ─────────────────────────────────────────────────────────────────
-// Matches vendor LVGL_Arduino.ino setup exactly
 
 static bool init_lvgl() {
     lv_init();
 
-    // Single draw buffer — same as vendor example
-    lv_disp_draw_buf_init(&draw_buf, buf, NULL, screenWidth * 10);
+    // Double-buffered draw buffer for flicker-free rendering
+    uint32_t buf_size = SCREEN_WIDTH * 10;
+    buf1 = (lv_color_t*)malloc(buf_size * sizeof(lv_color_t));
+    buf2 = (lv_color_t*)malloc(buf_size * sizeof(lv_color_t));
+    if (!buf1) {
+        Serial.println("[UGENT] FAIL: LVGL draw buf1 alloc");
+        return false;
+    }
+    if (!buf2) {
+        Serial.println("[UGENT] WARN: No buf2, single-buffer mode");
+        lv_disp_draw_buf_init(&draw_buf, buf1, nullptr, buf_size);
+    } else {
+        lv_disp_draw_buf_init(&draw_buf, buf1, buf2, buf_size);
+    }
 
     static lv_disp_drv_t disp_drv;
     lv_disp_drv_init(&disp_drv);
-    disp_drv.hor_res = screenWidth;
-    disp_drv.ver_res = screenHeight;
-    disp_drv.flush_cb = my_disp_flush;
+    disp_drv.hor_res = SCREEN_WIDTH;
+    disp_drv.ver_res = SCREEN_HEIGHT;
+    disp_drv.flush_cb = disp_flush;
     disp_drv.draw_buf = &draw_buf;
     lv_disp_drv_register(&disp_drv);
 
     lv_indev_drv_init(&indev_drv);
     indev_drv.type = LV_INDEV_TYPE_POINTER;
-    indev_drv.read_cb = my_touchpad_read;
+    indev_drv.read_cb = touch_read;
     lv_indev_drv_register(&indev_drv);
 
     Serial.println("[UGENT] LVGL OK");
@@ -268,7 +322,7 @@ static unsigned long lastBacklightCheck = 0;
 
 void loop() {
     lv_timer_handler();
-    delay(5);  // Same as vendor example
+    delay(2);
 
     unsigned long now = millis();
 

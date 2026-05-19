@@ -4,10 +4,10 @@
  * Hardware: ESP32-2432S028R (2.8" 320x240 ILI9341 + XPT2046)
  * Framework: Arduino + LVGL 8.x + TFT_eSPI
  *
- * SPI BUS ALLOCATION (proven by ropg/LVGL_CYD):
- *   Display (ILI9341):  HSPI (SPI2) via TFT_eSPI — USE_HSPI_PORT in User_Setup.h
- *   Touch (XPT2046):    VSPI (SPI3) via SPIClass(VSPI) with remapped pins
- *   No SPI hardware conflict = correct colors + no flickering
+ * CONFIGURATION: Use the vendor's exact User_Setup.h from:
+ *   2.8inch_ESP32-2432S028R/1-Demo/Demo_Arduino/3_4-4_2.8-LVGL_Arduino/
+ *   TFT_eSPI bottom layer replacement file/User_Setup.h
+ *   Copy to ~/Documents/Arduino/libraries/TFT_eSPI/User_Setup.h
  */
 #ifndef CONFIG_H
 #define CONFIG_H
@@ -30,32 +30,12 @@
 #define SCREEN_WIDTH  320
 #define SCREEN_HEIGHT 240
 
-// TFT (ILI9341) SPI pins — matches vendor User_Setup.h
-// These are configured in TFT_eSPI's User_Setup.h, NOT here.
-// Listed for reference only:
-//   TFT_MOSI=13, TFT_SCLK=14, TFT_CS=15, TFT_DC=2, TFT_RST=12, TFT_BL=21
+// Display pins — configured in TFT_eSPI's User_Setup.h (vendor version)
+// TFT_MOSI=13, TFT_SCLK=14, TFT_CS=15, TFT_DC=2, TFT_RST=12, TFT_BL=21
 
-// Touch SPI pins — on VSPI bus (SPI3), separate from display HSPI (SPI2)
-// Uses raw SPIClass(VSPI) hardware SPI — no TFT_Touch library needed
-// (TFT_Touch uses slow bit-banged GPIO that causes display flickering)
-#define TOUCH_DOUT 39   // MISO (data from touch controller)
-#define TOUCH_DIN  32   // MOSI (data to touch controller)
-#define TOUCH_CS   33   // Chip select
-#define TOUCH_CLK  25   // Clock
-#define TOUCH_IRQ  36   // IRQ pin (input-only GPIO 36, or 255 if unused)
-
-// Touch calibration for TFT_Touch setCal() format
-// Vendor example: touch.setCal(526, 3443, 750, 3377, 320, 240, 1)
-// Touch calibration values from vendor example:
-// touch.setCal(526, 3443, 750, 3377, 320, 240, 1)
-// These map raw XPT2046 ADC readings to screen coordinates.
-// The 7th param (axisSwap=1) means X↔Y are swapped in landscape mode,
-// which our touch_read() handles by mapping rawY→screenX, rawX→screenY.
-#define TOUCH_CAL_XMIN  526
-#define TOUCH_CAL_XMAX  3443
-#define TOUCH_CAL_YMIN  750
-#define TOUCH_CAL_YMAX  3377
-
+// Touch pins — used by TFT_Touch library (bit-banged GPIO)
+// Same as vendor LVGL example: CS=33, CLK=25, DIN=32, DOUT=39
+// Touch calibration: setCal(526, 3443, 750, 3377, 320, 240, 1)
 // Backlight PWM (GPIO 21 on ESP32-2432S028R)
 #define LCD_BL_PIN            21
 #define BACKLIGHT_PWM_CHANNEL 0
