@@ -128,7 +128,9 @@ static void on_sse_event(const SseEvent& event) {
 void setup() {
     Serial.begin(115200);
     while (!Serial && millis() < 3000) { delay(10); }
-    Serial.println("=== UGENT ESP32 Monitor ===");
+    Serial.println("\n\n\n****************************************************");
+    Serial.println("*  UGENT ESP32 Monitor - BOOT                     *");
+    Serial.println("****************************************************");
     Serial.printf("[Heap start: %u]\n", ESP.getFreeHeap());
 
     // Init order matches working test-lvgl EXACTLY
@@ -170,22 +172,50 @@ void setup() {
                     BACKLIGHT_PWM_FREQ, BACKLIGHT_PWM_RES);
     ugent_ledc_write(LCD_BL_PIN, BACKLIGHT_PWM_CHANNEL, 128);
 
-    // Quick color verification — flash 4 colors for 2 seconds
+    // Quick color verification — 4 unmistakable primary colors
     {
         lv_obj_t *scr = lv_scr_act();
-        lv_obj_set_style_bg_color(scr, lv_color_hex(0x0D1117), LV_PART_MAIN);
+        lv_obj_set_style_bg_color(scr, lv_color_hex(0x000000), LV_PART_MAIN);
         lv_obj_set_style_bg_opa(scr, LV_OPA_COVER, LV_PART_MAIN);
 
-        lv_obj_t *b = lv_btn_create(scr);
-        lv_obj_set_size(b, 300, 200);
-        lv_obj_center(b);
-        lv_obj_set_style_bg_color(b, lv_color_hex(0x58A6FF), LV_PART_MAIN);  // Vivid blue
-        lv_obj_t *l = lv_label_create(b);
-        lv_label_set_text(l, "COLOR TEST");
-        lv_obj_set_style_text_color(l, lv_color_hex(0x000000), LV_PART_MAIN);
-        lv_obj_center(l);
+        lv_obj_t *b1 = lv_btn_create(scr);
+        lv_obj_set_size(b1, 150, 115);
+        lv_obj_align(b1, LV_ALIGN_TOP_LEFT, 5, 5);
+        lv_obj_set_style_bg_color(b1, lv_color_hex(0xFF0000), LV_PART_MAIN);  // PURE RED
+        lv_obj_t *l1 = lv_label_create(b1);
+        lv_label_set_text(l1, "RED");
+        lv_obj_set_style_text_color(l1, lv_color_hex(0xFFFFFF), LV_PART_MAIN);
+        lv_obj_center(l1);
+
+        lv_obj_t *b2 = lv_btn_create(scr);
+        lv_obj_set_size(b2, 150, 115);
+        lv_obj_align(b2, LV_ALIGN_TOP_RIGHT, -5, 5);
+        lv_obj_set_style_bg_color(b2, lv_color_hex(0x00FF00), LV_PART_MAIN);  // PURE GREEN
+        lv_obj_t *l2 = lv_label_create(b2);
+        lv_label_set_text(l2, "GREEN");
+        lv_obj_set_style_text_color(l2, lv_color_hex(0x000000), LV_PART_MAIN);
+        lv_obj_center(l2);
+
+        lv_obj_t *b3 = lv_btn_create(scr);
+        lv_obj_set_size(b3, 150, 115);
+        lv_obj_align(b3, LV_ALIGN_BOTTOM_LEFT, 5, -5);
+        lv_obj_set_style_bg_color(b3, lv_color_hex(0x0000FF), LV_PART_MAIN);  // PURE BLUE
+        lv_obj_t *l3 = lv_label_create(b3);
+        lv_label_set_text(l3, "BLUE");
+        lv_obj_set_style_text_color(l3, lv_color_hex(0xFFFFFF), LV_PART_MAIN);
+        lv_obj_center(l3);
+
+        lv_obj_t *b4 = lv_btn_create(scr);
+        lv_obj_set_size(b4, 150, 115);
+        lv_obj_align(b4, LV_ALIGN_BOTTOM_RIGHT, -5, -5);
+        lv_obj_set_style_bg_color(b4, lv_color_hex(0xFFFF00), LV_PART_MAIN);  // PURE YELLOW
+        lv_obj_t *l4 = lv_label_create(b4);
+        lv_label_set_text(l4, "YELLOW");
+        lv_obj_set_style_text_color(l4, lv_color_hex(0x000000), LV_PART_MAIN);
+        lv_obj_center(l4);
     }
-    for (int i = 0; i < 400; i++) { lv_timer_handler(); delay(5); }
+    Serial.println("[UGENT] Showing 4 PRIMARY colors (RED/GREEN/BLUE/YELLOW) for 3 sec");
+    for (int i = 0; i < 600; i++) { lv_timer_handler(); delay(5); }
     lv_obj_clean(lv_scr_act());
     Serial.println("[UGENT] Color test done");
 
