@@ -50,25 +50,9 @@ public:
     void loop() {
         unsigned long now = millis();
 
-        // Auto-reconnect logic
-        if (state_ == WifiState::DISCONNECTED &&
-            nvs_->hasWifiCredentials() &&
-            lastConnectAttempt_ == 0) {
-            // Start reconnect after brief delay
-            lastConnectAttempt_ = now;
-        }
-
-        if (state_ == WifiState::DISCONNECTED &&
-            nvs_->hasWifiCredentials() &&
-            lastConnectAttempt_ > 0 &&
-            (now - lastConnectAttempt_) >= WIFI_RECONNECT_DELAY_MS) {
-            autoConnect();
-        }
-
-        // SmartConfig timeout
+        // SmartConfig check (priority over auto-reconnect)
         if (state_ == WifiState::SMARTCONFIG_WAITING) {
             if (WiFi.smartConfigDone()) {
-                // SmartConfig succeeded
                 String ssid = WiFi.SSID();
                 String pass = WiFi.psk();
                 nvs_->setWifiSsid(ssid.c_str());
@@ -76,12 +60,27 @@ public:
                 setState(WifiState::CONNECTED);
                 WiFi.stopSmartConfig();
             }
+            return; // Don't auto-reconnect while SmartConfig is active
+        }
+
+        // Auto-reconnect logic — only if not already connecting
+        if (state_ == WifiState::DISCONNECTED &&
+            nvs_ && nvs_->hasWifiCredentials() &&
+            lastConnectAttempt_ == 0) {
+            lastConnectAttempt_ = now;
+        }
+
+        if (state_ == WifiState::DISCONNECTED &&
+            nvs_ && nvs_->hasWifiCredentials() &&
+            lastConnectAttempt_ > 0 &&
+            (now - lastConnectAttempt_) >= WIFI_RECONNECT_DELAY_MS) {
+            autoConnect();
         }
     }
 
     // Try connecting with saved credentials
     bool autoConnect() {
-        if (!nvs_->hasWifiCredentials()) return false;
+        if (!nvs_ || !nvs_->hasWifiCredentials()) return false;
 
         String ssid = nvs_->getWifiSsid();
         String pass = nvs_->getWifiPass();
@@ -106,6 +105,10 @@ public:
 
     // Connect with specific credentials
     bool connect(const char* ssid, const char* pass) {
+        // Stop any existing connection attempt first
+        WiFi.disconnect(true);
+        delay(100);
+
         setState(WifiState::CONNECTING);
         WiFi.begin(ssid, pass);
 
@@ -122,6 +125,7 @@ public:
         nvs_->setWifiSsid(ssid);
         nvs_->setWifiPass(pass);
         setState(WifiState::CONNECTED);
+        lastConnectAttempt_ = 0;
         return true;
     }
 

@@ -301,6 +301,16 @@ void loop() {
         }
     }
 
+    // Auto-start SSE when WiFi connects (handles both boot-time and Settings-screen WiFi)
+    if (wifi.isConnected() && !sse_ready && nvs_ready) {
+        if (!ugent.isConnected()) {
+            ugent.begin(&nvs);
+        }
+        sse.begin(&nvs);
+        sse.onEvent(on_sse_event);
+        sse_ready = true;
+    }
+
     // Guard: sse.loop() crashes with null nvs_ if begin() was never called
     if (sse_ready) {
         sse.loop();
