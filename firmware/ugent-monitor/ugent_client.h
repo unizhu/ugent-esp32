@@ -68,7 +68,7 @@ public:
     }
 
     void loop() {
-        if (!nvs_->hasUgentConfig()) return;
+        if (!nvs_ || !nvs_->hasUgentConfig()) return;
 
         unsigned long now = millis();
         if (now - lastPoll_ >= STATUS_POLL_INTERVAL_MS || lastPoll_ == 0) {

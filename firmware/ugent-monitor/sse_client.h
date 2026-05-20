@@ -55,7 +55,7 @@ public:
     }
 
     void loop() {
-        if (!nvs_->hasUgentConfig()) return;
+        if (!nvs_ || !nvs_->hasUgentConfig()) return;
 
         // Maintain connection
         if (!connected_) {

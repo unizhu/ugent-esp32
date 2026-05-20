@@ -63,6 +63,10 @@ static uint16_t lastTouchY = 0;
 
 static uint8_t currentBrightness = 128;
 
+// Init guards — prevent null pointer dereference in loop()
+static bool nvs_ready = false;
+static bool sse_ready = false;
+
 // ─── Display Flush ─────────────────────────────────────────────────────────────
 void my_disp_flush(lv_disp_drv_t *disp, const lv_area_t *area, lv_color_t *color_p) {
     uint32_t w = (area->x2 - area->x1 + 1);
@@ -235,6 +239,7 @@ void setup() {
     if (!nvs.begin()) {
         Serial.println("[UGENT] NVS init failed");
     } else {
+        nvs_ready = true;
         wifi.begin(&nvs);
         if (nvs.hasWifiCredentials()) {
             String ssid = nvs.getWifiSsid();
@@ -256,6 +261,7 @@ void setup() {
         if (wifi.isConnected()) {
             sse.begin(&nvs);
             sse.onEvent(on_sse_event);
+            sse_ready = true;
         }
 
         currentBrightness = nvs.getBrightness();
@@ -295,9 +301,12 @@ void loop() {
         }
     }
 
-    sse.loop();
+    // Guard: sse.loop() crashes with null nvs_ if begin() was never called
+    if (sse_ready) {
+        sse.loop();
+    }
 
-    if (now - lastBacklightCheck > 1000) {
+    if (nvs_ready && (now - lastBacklightCheck > 1000)) {
         lastBacklightCheck = now;
         uint8_t target = nvs.getBrightness();
         if (target != currentBrightness && target >= 10) {
