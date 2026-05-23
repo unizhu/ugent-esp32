@@ -24,7 +24,8 @@ static lv_obj_t* settings_wifi_ssid_ta = nullptr;
 static lv_obj_t* settings_wifi_pass_ta = nullptr;
 static lv_obj_t* settings_wifi_connect_btn = nullptr;
 static lv_obj_t* settings_wifi_scan_btn = nullptr;
-static lv_obj_t* settings_wifi_list_cont = nullptr;
+static lv_obj_t* settings_wifi_roller = nullptr;
+static lv_obj_t* settings_wifi_select_btn = nullptr;
 static lv_obj_t* settings_saved_list_cont = nullptr;
 static lv_obj_t* settings_ugent_host_ta = nullptr;
 static lv_obj_t* settings_ugent_port_ta = nullptr;
@@ -94,26 +95,26 @@ static void wifi_connect_cb(lv_event_t* e) {
 
 // ─── WiFi: Scan ────────────────────────────────────────────────────────────────
 
-static void wifi_select_cb(lv_event_t* e) {
-    int idx = (int)(intptr_t)lv_obj_get_user_data(lv_event_get_target(e));
-    if (idx < 0 || idx >= scan_result_count) return;
+static void wifi_roller_select_cb(lv_event_t* e) {
+    if (!settings_wifi_roller || scan_result_count == 0) return;
 
-    lv_textarea_set_text(settings_wifi_ssid_ta, scanned_ssids[idx].c_str());
+    uint16_t sel = lv_roller_get_selected(settings_wifi_roller);
+    if (sel >= (uint16_t)scan_result_count) return;
+
+    lv_textarea_set_text(settings_wifi_ssid_ta, scanned_ssids[sel].c_str());
     lv_textarea_set_text(settings_wifi_pass_ta, "");
 
-    // Hide scan results
-    if (settings_wifi_list_cont) {
-        lv_obj_add_flag(settings_wifi_list_cont, LV_OBJ_FLAG_HIDDEN);
-    }
+    // Hide roller, show keyboard for password
+    if (settings_wifi_roller) lv_obj_add_flag(settings_wifi_roller, LV_OBJ_FLAG_HIDDEN);
+    if (settings_wifi_select_btn) lv_obj_add_flag(settings_wifi_select_btn, LV_OBJ_FLAG_HIDDEN);
 
-    // Show keyboard focused on password field
     lv_obj_add_state(settings_wifi_pass_ta, LV_STATE_FOCUSED);
     if (settings_kb) {
         lv_keyboard_set_textarea(settings_kb, settings_wifi_pass_ta);
     }
     show_kb();
 
-    lv_label_set_text_fmt(settings_feedback, "Selected: %s", scanned_ssids[idx].c_str());
+    lv_label_set_text_fmt(settings_feedback, "Selected: %s", scanned_ssids[sel].c_str());
     lv_obj_set_style_text_color(settings_feedback, color_blue(), LV_PART_MAIN);
 }
 
@@ -139,50 +140,27 @@ static void wifi_scan_cb(lv_event_t* e) {
         scanned_ssids[i] = settings_wifi_->getScannedSsid(i);
     }
 
-    // Clear old results
-    if (settings_wifi_list_cont) {
-        lv_obj_clean(settings_wifi_list_cont);
-        lv_obj_clear_flag(settings_wifi_list_cont, LV_OBJ_FLAG_HIDDEN);
-    }
-
-    // Build result buttons
+    // Build roller options string: "SSID1\nSSID2\n..."
+    String options = "";
     for (int i = 0; i < scan_result_count; i++) {
-        int32_t rssi = settings_wifi_->getScannedRssi(i);
-        bool open = (settings_wifi_->getScannedAuth(i) == WIFI_AUTH_OPEN);
-
-        lv_obj_t* btn = lv_btn_create(settings_wifi_list_cont);
-        lv_obj_set_size(btn, SCREEN_WIDTH - 24, 32);
-        lv_obj_set_style_bg_color(btn, color_surface1(), LV_PART_MAIN);
-        lv_obj_set_style_bg_opa(btn, LV_OPA_COVER, LV_PART_MAIN);
-        lv_obj_set_style_radius(btn, 4, LV_PART_MAIN);
-        lv_obj_set_style_pad_all(btn, 4, LV_PART_MAIN);
-        lv_obj_set_user_data(btn, (void*)(intptr_t)i);
-        lv_obj_add_event_cb(btn, wifi_select_cb, LV_EVENT_CLICKED, nullptr);
-
-        // Signal strength bars
-        char bars[5] = "    ";
-        int bar_count = 0;
-        if (rssi > -50) bar_count = 4;
-        else if (rssi > -60) bar_count = 3;
-        else if (rssi > -70) bar_count = 2;
-        else bar_count = 1;
-        for (int b = 0; b < bar_count; b++) bars[b] = '|';
-
-        char label[80];
-        snprintf(label, sizeof(label), "%s %s %s",
-                 scanned_ssids[i].c_str(), bars,
-                 open ? "[OPEN]" : "");
-
-        lv_obj_t* lbl = lv_label_create(btn);
-        lv_label_set_text(lbl, label);
-        lv_obj_set_style_text_font(lbl, &lv_font_montserrat_12, LV_PART_MAIN);
-        lv_obj_set_style_text_color(lbl, color_text(), LV_PART_MAIN);
-        lv_obj_align(lbl, LV_ALIGN_LEFT_MID, 4, 0);
+        if (i > 0) options += "\n";
+        options += scanned_ssids[i];
     }
 
     settings_wifi_->clearScanResults();
 
-    lv_label_set_text_fmt(settings_feedback, "Found %d networks — tap to select", scan_result_count);
+    // Show roller with scan results
+    if (settings_wifi_roller) {
+        lv_roller_set_options(settings_wifi_roller, options.c_str(), LV_ROLLER_MODE_NORMAL);
+        lv_roller_set_selected(settings_wifi_roller, 0, LV_ANIM_OFF);
+        lv_roller_set_visible_row_count(settings_wifi_roller, scan_result_count > 4 ? 4 : scan_result_count);
+        lv_obj_clear_flag(settings_wifi_roller, LV_OBJ_FLAG_HIDDEN);
+    }
+    if (settings_wifi_select_btn) {
+        lv_obj_clear_flag(settings_wifi_select_btn, LV_OBJ_FLAG_HIDDEN);
+    }
+
+    lv_label_set_text_fmt(settings_feedback, "Found %d — scroll & tap Select", scan_result_count);
     lv_obj_set_style_text_color(settings_feedback, color_green(), LV_PART_MAIN);
 }
 
@@ -342,24 +320,33 @@ inline void screen_settings_create(lv_obj_t* parent, NvsStorage* nvs,
     lv_label_set_text(scan_lbl, "Scan WiFi Networks");
     lv_obj_center(scan_lbl);
 
-    // Scan results container (hidden until scan)
-    settings_wifi_list_cont = lv_obj_create(cont);
-    lv_obj_set_size(settings_wifi_list_cont, SCREEN_WIDTH - 20, LV_SIZE_CONTENT);
-    lv_obj_align_to(settings_wifi_list_cont, settings_wifi_scan_btn, LV_ALIGN_OUT_BOTTOM_LEFT, 0, 2);
-    lv_obj_set_style_bg_color(settings_wifi_list_cont, color_bg(), LV_PART_MAIN);
-    lv_obj_set_style_bg_opa(settings_wifi_list_cont, LV_OPA_COVER, LV_PART_MAIN);
-    lv_obj_set_style_border_width(settings_wifi_list_cont, 1, LV_PART_MAIN);
-    lv_obj_set_style_border_color(settings_wifi_list_cont, color_surface2(), LV_PART_MAIN);
-    lv_obj_set_style_pad_all(settings_wifi_list_cont, 2, LV_PART_MAIN);
-    lv_obj_add_flag(settings_wifi_list_cont, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_add_flag(settings_wifi_list_cont, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_set_scrollbar_mode(settings_wifi_list_cont, LV_SCROLLBAR_MODE_ACTIVE);
-    lv_obj_set_style_max_height(settings_wifi_list_cont, 130, LV_PART_MAIN);
+    // Scan results roller (hidden until scan)
+    settings_wifi_roller = lv_roller_create(cont);
+    lv_obj_set_size(settings_wifi_roller, SCREEN_WIDTH - 20, LV_SIZE_CONTENT);
+    lv_obj_align_to(settings_wifi_roller, settings_wifi_scan_btn, LV_ALIGN_OUT_BOTTOM_LEFT, 0, 2);
+    lv_obj_set_style_bg_color(settings_wifi_roller, color_surface0(), LV_PART_MAIN);
+    lv_obj_set_style_text_color(settings_wifi_roller, color_text(), LV_PART_MAIN);
+    lv_obj_set_style_text_font(settings_wifi_roller, &lv_font_montserrat_12, LV_PART_MAIN);
+    lv_obj_set_style_border_width(settings_wifi_roller, 1, LV_PART_MAIN);
+    lv_obj_set_style_border_color(settings_wifi_roller, color_surface2(), LV_PART_MAIN);
+    lv_roller_set_visible_row_count(settings_wifi_roller, 3);
+    lv_obj_add_flag(settings_wifi_roller, LV_OBJ_FLAG_HIDDEN);
+
+    // [Select] button (hidden until scan)
+    settings_wifi_select_btn = lv_btn_create(cont);
+    lv_obj_set_size(settings_wifi_select_btn, SCREEN_WIDTH - 20, 32);
+    lv_obj_align_to(settings_wifi_select_btn, settings_wifi_roller, LV_ALIGN_OUT_BOTTOM_LEFT, 0, 2);
+    lv_obj_add_style(settings_wifi_select_btn, &style_btn_primary, 0);
+    lv_obj_add_event_cb(settings_wifi_select_btn, wifi_roller_select_cb, LV_EVENT_CLICKED, nullptr);
+    lv_obj_t* sel_lbl = lv_label_create(settings_wifi_select_btn);
+    lv_label_set_text(sel_lbl, ">> Select This Network");
+    lv_obj_center(sel_lbl);
+    lv_obj_add_flag(settings_wifi_select_btn, LV_OBJ_FLAG_HIDDEN);
 
     // SSID input
     settings_wifi_ssid_ta = lv_textarea_create(cont);
     lv_obj_set_size(settings_wifi_ssid_ta, SCREEN_WIDTH - 20, 24);
-    lv_obj_align_to(settings_wifi_ssid_ta, settings_wifi_list_cont, LV_ALIGN_OUT_BOTTOM_LEFT, 0, 4);
+    lv_obj_align_to(settings_wifi_ssid_ta, settings_wifi_select_btn, LV_ALIGN_OUT_BOTTOM_LEFT, 0, 4);
     lv_textarea_set_placeholder_text(settings_wifi_ssid_ta, "WiFi SSID");
     lv_textarea_set_one_line(settings_wifi_ssid_ta, true);
     lv_obj_set_style_bg_color(settings_wifi_ssid_ta, color_surface0(), LV_PART_MAIN);
