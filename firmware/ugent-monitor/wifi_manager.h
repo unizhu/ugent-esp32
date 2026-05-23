@@ -1,7 +1,7 @@
 /**
  * UGENT ESP32 Monitor — WiFi Manager
  *
- * Handles WiFi connection: auto-connect, scan & select, SmartConfig fallback.
+ * Handles WiFi: multi-network auto-connect, scan & select, reconnect.
  */
 
 #ifndef WIFI_MANAGER_H
@@ -16,14 +16,8 @@ enum class WifiState {
     DISCONNECTED,
     CONNECTING,
     CONNECTED,
-    SMARTCONFIG_WAITING,
-    SCAN_RUNNING,
     FAILED
 };
-
-// Callback types for UI updates
-typedef void (*WifiStateCallback)(WifiState state);
-typedef void (*WifiScanCallback)(int numNetworks);
 
 class WifiManager {
 public:
@@ -31,18 +25,15 @@ public:
         nvs_ = nvs;
         state_ = WifiState::DISCONNECTED;
         lastConnectAttempt_ = 0;
-        stateCallback_ = nullptr;
-        scanCallback_ = nullptr;
 
         WiFi.mode(WIFI_STA);
         WiFi.setAutoReconnect(true);
-        WiFi.setSleep(false); // Lower latency
+        WiFi.setSleep(false);
 
-        // Register disconnect handler for auto-reconnect
         WiFi.onEvent([this](WiFiEvent_t event, WiFiEventInfo_t info) {
             if (event == ARDUINO_EVENT_WIFI_STA_DISCONNECTED) {
-                setState(WifiState::DISCONNECTED);
-                lastConnectAttempt_ = 0; // Trigger reconnect on next loop
+                state_ = WifiState::DISCONNECTED;
+                lastConnectAttempt_ = 0;
             }
         });
     }
@@ -50,20 +41,7 @@ public:
     void loop() {
         unsigned long now = millis();
 
-        // SmartConfig check (priority over auto-reconnect)
-        if (state_ == WifiState::SMARTCONFIG_WAITING) {
-            if (WiFi.smartConfigDone()) {
-                String ssid = WiFi.SSID();
-                String pass = WiFi.psk();
-                nvs_->setWifiSsid(ssid.c_str());
-                nvs_->setWifiPass(pass.c_str());
-                setState(WifiState::CONNECTED);
-                WiFi.stopSmartConfig();
-            }
-            return; // Don't auto-reconnect while SmartConfig is active
-        }
-
-        // Auto-reconnect logic — only if not already connecting
+        // Auto-reconnect — try all saved networks
         if (state_ == WifiState::DISCONNECTED &&
             nvs_ && nvs_->hasWifiCredentials() &&
             lastConnectAttempt_ == 0) {
@@ -78,34 +56,41 @@ public:
         }
     }
 
-    // Try connecting with saved credentials
+    // Try all saved networks in order until one connects
     bool autoConnect() {
         if (!nvs_ || !nvs_->hasWifiCredentials()) return false;
 
-        String ssid = nvs_->getWifiSsid();
-        String pass = nvs_->getWifiPass();
+        int count = nvs_->getWifiCount();
+        for (int i = 0; i < count && i < MAX_WIFI_SAVED; i++) {
+            String ssid = nvs_->getWifiSsid(i);
+            String pass = nvs_->getWifiPass(i);
+            if (ssid.length() == 0) continue;
 
-        setState(WifiState::CONNECTING);
-        WiFi.begin(ssid.c_str(), pass.c_str());
+            setState(WifiState::CONNECTING);
+            WiFi.disconnect(true);
+            delay(100);
+            WiFi.begin(ssid.c_str(), pass.c_str());
 
-        unsigned long start = millis();
-        while (WiFi.status() != WL_CONNECTED) {
-            if (millis() - start > WIFI_CONNECT_TIMEOUT_MS) {
-                setState(WifiState::FAILED);
-                lastConnectAttempt_ = millis();
-                return false;
+            unsigned long start = millis();
+            while (WiFi.status() != WL_CONNECTED) {
+                if (millis() - start > WIFI_CONNECT_TIMEOUT_MS) break;
+                delay(200);
             }
-            delay(200);
+
+            if (WiFi.status() == WL_CONNECTED) {
+                setState(WifiState::CONNECTED);
+                lastConnectAttempt_ = 0;
+                return true;
+            }
         }
 
-        setState(WifiState::CONNECTED);
-        lastConnectAttempt_ = 0;
-        return true;
+        setState(WifiState::FAILED);
+        lastConnectAttempt_ = millis();
+        return false;
     }
 
-    // Connect with specific credentials
+    // Connect with specific credentials, save to NVS
     bool connect(const char* ssid, const char* pass) {
-        // Stop any existing connection attempt first
         WiFi.disconnect(true);
         delay(100);
 
@@ -121,56 +106,32 @@ public:
             delay(200);
         }
 
-        // Save credentials on success
-        nvs_->setWifiSsid(ssid);
-        nvs_->setWifiPass(pass);
+        // Save to NVS (multi-network upsert)
+        if (nvs_) {
+            nvs_->saveWifi(ssid, pass);
+        }
         setState(WifiState::CONNECTED);
         lastConnectAttempt_ = 0;
         return true;
     }
 
-    // Start SmartConfig for provisioning via ESP-Touch app
-    void startSmartConfig() {
-        setState(WifiState::SMARTCONFIG_WAITING);
-        WiFi.beginSmartConfig();
+    // Delete a saved network by index
+    void deleteSaved(int idx) {
+        if (nvs_) nvs_->deleteWifi(idx);
     }
 
-    void stopSmartConfig() {
-        WiFi.stopSmartConfig();
-        if (state_ == WifiState::SMARTCONFIG_WAITING) {
-            setState(WifiState::DISCONNECTED);
-        }
-    }
-
-    // Scan for available networks (blocking)
+    // Scan for available networks (blocking, ~3 sec)
     int scanNetworks() {
-        setState(WifiState::SCAN_RUNNING);
         int n = WiFi.scanNetworks(false, false, false, 300);
         if (n < 0) n = 0;
         if (n > MAX_WIFI_NETWORKS) n = MAX_WIFI_NETWORKS;
-        if (scanCallback_) scanCallback_(n);
-        setState(state_ == WifiState::CONNECTED ?
-                 WifiState::CONNECTED : WifiState::DISCONNECTED);
         return n;
     }
 
-    // Get scan result
-    String getScannedSsid(int index) const {
-        return WiFi.SSID(index);
-    }
-
-    int32_t getScannedRssi(int index) const {
-        return WiFi.RSSI(index);
-    }
-
-    wifi_auth_mode_t getScannedAuth(int index) const {
-        return WiFi.encryptionType(index);
-    }
-
-    // Free scan memory
-    void clearScanResults() {
-        WiFi.scanDelete();
-    }
+    String getScannedSsid(int index) const { return WiFi.SSID(index); }
+    int32_t getScannedRssi(int index) const { return WiFi.RSSI(index); }
+    wifi_auth_mode_t getScannedAuth(int index) const { return WiFi.encryptionType(index); }
+    void clearScanResults() { WiFi.scanDelete(); }
 
     // ─── Getters ──────────────────────────────────────────────────────────
     WifiState getState() const { return state_; }
@@ -179,23 +140,20 @@ public:
     int8_t getRssi() const { return WiFi.RSSI(); }
     String getSsid() const { return WiFi.SSID(); }
 
-    // ─── Callbacks ────────────────────────────────────────────────────────
-    void onStateChange(WifiStateCallback cb) { stateCallback_ = cb; }
-    void onScanComplete(WifiScanCallback cb) { scanCallback_ = cb; }
+    // Number of saved networks
+    int getSavedCount() const { return nvs_ ? nvs_->getWifiCount() : 0; }
+    String getSavedSsid(int idx) const { return nvs_ ? nvs_->getWifiSsid(idx) : ""; }
 
 private:
     void setState(WifiState newState) {
         if (state_ != newState) {
             state_ = newState;
-            if (stateCallback_) stateCallback_(state_);
         }
     }
 
     NvsStorage* nvs_;
     WifiState state_;
     unsigned long lastConnectAttempt_;
-    WifiStateCallback stateCallback_;
-    WifiScanCallback scanCallback_;
 };
 
 #endif // WIFI_MANAGER_H

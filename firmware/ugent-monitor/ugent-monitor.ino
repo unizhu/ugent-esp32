@@ -241,17 +241,19 @@ void setup() {
     } else {
         nvs_ready = true;
         wifi.begin(&nvs);
-        if (nvs.hasWifiCredentials()) {
-            String ssid = nvs.getWifiSsid();
-            String pass = nvs.getWifiPass();
-            Serial.printf("[UGENT] WiFi: %s\n", ssid.c_str());
-            if (wifi.connect(ssid.c_str(), pass.c_str())) {
-                Serial.printf("[UGENT] WiFi: IP %s\n", WiFi.localIP().toString().c_str());
+
+        // Try all saved WiFi networks
+        int wifiCount = nvs.getWifiCount();
+        if (wifiCount > 0) {
+            Serial.printf("[UGENT] Trying %d saved WiFi networks...\n", wifiCount);
+            if (wifi.autoConnect()) {
+                Serial.printf("[UGENT] WiFi: %s (%s)\n",
+                    WiFi.SSID().c_str(), WiFi.localIP().toString().c_str());
             } else {
-                Serial.println("[UGENT] WiFi: failed");
+                Serial.println("[UGENT] WiFi: all saved networks failed");
             }
         } else {
-            Serial.println("[UGENT] No WiFi credentials");
+            Serial.println("[UGENT] No WiFi credentials — use Setup tab to configure");
         }
 
         ugent.begin(&nvs);

@@ -81,8 +81,10 @@ static inline void ugent_ledc_write(uint8_t pin, uint8_t channel, uint32_t duty)
 #define NVS_NAMESPACE "ugent"
 
 // WiFi
-#define NVS_KEY_WIFI_SSID     "wifi_ssid"
-#define NVS_KEY_WIFI_PASS     "wifi_pass"
+#define NVS_KEY_WIFI_COUNT   "wifi_cnt"
+#define NVS_KEY_WIFI_SSID    "wifi_ss"   // prefix: wifi_ss0, wifi_ss1, wifi_ss2
+#define NVS_KEY_WIFI_PASS    "wifi_pw"   // prefix: wifi_pw0, wifi_pw1, wifi_pw2
+#define MAX_WIFI_SAVED       3            // Max saved WiFi networks
 
 // UGENT server
 #define NVS_KEY_UGENT_HOST    "ugent_host"
@@ -102,7 +104,7 @@ static inline void ugent_ledc_write(uint8_t pin, uint8_t channel, uint32_t duty)
 #define DEFAULT_UGENT_HOST   ""
 #define DEFAULT_UGENT_PORT   8765
 #define DEFAULT_UGENT_APIKEY ""
-#define DEFAULT_BRIGHTNESS   80   // 0–100
+#define DEFAULT_BRIGHTNESS   128  // PWM duty cycle (10–255)
 
 // ─── Timing ──────────────────────────────────────────────────────────────────
 #define WIFI_CONNECT_TIMEOUT_MS   10000  // 10 seconds

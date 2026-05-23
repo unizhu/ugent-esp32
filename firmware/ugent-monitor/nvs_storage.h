@@ -2,6 +2,7 @@
  * UGENT ESP32 Monitor — NVS Storage
  *
  * Wrapper over ESP32 Preferences (NVS) for persistent settings.
+ * Supports up to MAX_WIFI_SAVED (3) WiFi networks.
  */
 
 #ifndef NVS_STORAGE_H
@@ -21,27 +22,97 @@ public:
         prefs_.end();
     }
 
-    // ─── WiFi ─────────────────────────────────────────────────────────────
-    String getWifiSsid() const {
-        return prefs_.getString(NVS_KEY_WIFI_SSID, "");
+    // ─── WiFi (multi-network) ─────────────────────────────────────────────
+
+    int getWifiCount() const {
+        return prefs_.getInt(NVS_KEY_WIFI_COUNT, 0);
     }
 
-    void setWifiSsid(const char* val) {
-        prefs_.putString(NVS_KEY_WIFI_SSID, val);
+    void setWifiCount(int count) {
+        prefs_.putInt(NVS_KEY_WIFI_COUNT, count);
     }
 
-    String getWifiPass() const {
-        return prefs_.getString(NVS_KEY_WIFI_PASS, "");
+    String getWifiSsid(int idx) const {
+        if (idx < 0 || idx >= MAX_WIFI_SAVED) return "";
+        char key[16];
+        snprintf(key, sizeof(key), "%s%d", NVS_KEY_WIFI_SSID, idx);
+        return prefs_.getString(key, "");
     }
 
-    void setWifiPass(const char* val) {
-        prefs_.putString(NVS_KEY_WIFI_PASS, val);
+    void setWifiSsid(int idx, const char* val) {
+        if (idx < 0 || idx >= MAX_WIFI_SAVED) return;
+        char key[16];
+        snprintf(key, sizeof(key), "%s%d", NVS_KEY_WIFI_SSID, idx);
+        prefs_.putString(key, val);
+    }
+
+    String getWifiPass(int idx) const {
+        if (idx < 0 || idx >= MAX_WIFI_SAVED) return "";
+        char key[16];
+        snprintf(key, sizeof(key), "%s%d", NVS_KEY_WIFI_PASS, idx);
+        return prefs_.getString(key, "");
+    }
+
+    void setWifiPass(int idx, const char* val) {
+        if (idx < 0 || idx >= MAX_WIFI_SAVED) return;
+        char key[16];
+        snprintf(key, sizeof(key), "%s%d", NVS_KEY_WIFI_PASS, idx);
+        prefs_.putString(key, val);
     }
 
     bool hasWifiCredentials() const {
-        return prefs_.isKey(NVS_KEY_WIFI_SSID) &&
-               getWifiSsid().length() > 0;
+        return getWifiCount() > 0;
     }
+
+    // Find slot for an SSID: returns existing index or first empty slot
+    int findWifiSlot(const char* ssid) const {
+        int count = getWifiCount();
+        // Check existing
+        for (int i = 0; i < MAX_WIFI_SAVED; i++) {
+            if (getWifiSsid(i) == ssid) return i;
+        }
+        // First empty slot
+        for (int i = 0; i < MAX_WIFI_SAVED; i++) {
+            if (getWifiSsid(i).length() == 0) return i;
+        }
+        // Overwrite oldest (slot 0, shift others)
+        return 0;
+    }
+
+    // Save WiFi credentials (upsert)
+    void saveWifi(const char* ssid, const char* pass) {
+        int slot = findWifiSlot(ssid);
+        setWifiSsid(slot, ssid);
+        setWifiPass(slot, pass);
+        // Update count
+        int count = 0;
+        for (int i = 0; i < MAX_WIFI_SAVED; i++) {
+            if (getWifiSsid(i).length() > 0) count++;
+        }
+        setWifiCount(count);
+    }
+
+    // Delete a saved WiFi by index
+    void deleteWifi(int idx) {
+        if (idx < 0 || idx >= MAX_WIFI_SAVED) return;
+        char key[16];
+        snprintf(key, sizeof(key), "%s%d", NVS_KEY_WIFI_SSID, idx);
+        prefs_.remove(key);
+        snprintf(key, sizeof(key), "%s%d", NVS_KEY_WIFI_PASS, idx);
+        prefs_.remove(key);
+        // Recount
+        int count = 0;
+        for (int i = 0; i < MAX_WIFI_SAVED; i++) {
+            if (getWifiSsid(i).length() > 0) count++;
+        }
+        setWifiCount(count);
+    }
+
+    // ─── Legacy single-network compat (maps to slot 0) ────────────────────
+    String getWifiSsid() const { return getWifiSsid(0); }
+    void setWifiSsid(const char* val) { setWifiSsid(0, val); }
+    String getWifiPass() const { return getWifiPass(0); }
+    void setWifiPass(const char* val) { setWifiPass(0, val); }
 
     // ─── UGENT Server ─────────────────────────────────────────────────────
     String getUgentHost() const {
