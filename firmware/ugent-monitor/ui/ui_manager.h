@@ -30,13 +30,10 @@ enum Screen : uint8_t {
     SCREEN_COUNT
 };
 
-// Global so the static LVGL event callback can access it
-static UIManager* g_ui_instance = nullptr;
 
 class UIManager {
 public:
     void begin() {
-        g_ui_instance = this;
 
         // Apply theme
         theme_init();
