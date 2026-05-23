@@ -242,19 +242,9 @@ void setup() {
         nvs_ready = true;
         wifi.begin(&nvs);
 
-        // Try all saved WiFi networks
-        int wifiCount = nvs.getWifiCount();
-        if (wifiCount > 0) {
-            Serial.printf("[UGENT] Trying %d saved WiFi networks...\n", wifiCount);
-            if (wifi.autoConnect()) {
-                Serial.printf("[UGENT] WiFi: %s (%s)\n",
-                    WiFi.SSID().c_str(), WiFi.localIP().toString().c_str());
-            } else {
-                Serial.println("[UGENT] WiFi: all saved networks failed");
-            }
-        } else {
-            Serial.println("[UGENT] No WiFi credentials — use Setup tab to configure");
-        }
+        // Non-blocking: let wifi.loop() handle auto-reconnect in background
+        // This avoids freezing the UI for 10-30 seconds during boot
+        Serial.printf("[UGENT] %d saved WiFi networks\n", nvs.getWifiCount());
 
         ugent.begin(&nvs);
         Serial.printf("[UGENT] Server: %s:%d\n",
@@ -291,6 +281,14 @@ static unsigned long lastBacklightCheck = 0;
 void loop() {
     lv_timer_handler();
     delay(5);
+
+    // Lazy-load settings screen on first visit
+    ui.loop();
+
+    // WiFi auto-reconnect in background
+    if (nvs_ready) {
+        wifi.loop();
+    }
 
     unsigned long now = millis();
 

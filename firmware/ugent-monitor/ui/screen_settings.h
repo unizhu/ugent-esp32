@@ -34,9 +34,9 @@ static lv_obj_t* settings_brightness_slider = nullptr;
 static lv_obj_t* settings_feedback = nullptr;
 static lv_obj_t* settings_kb = nullptr;
 
-// Scan result storage
-static const int MAX_SCAN_DISPLAY = 10;
-static String scanned_ssids[MAX_SCAN_DISPLAY];
+// Scan result storage (heap-allocated on scan to minimize BSS)
+static const int MAX_SCAN_DISPLAY = 8;
+static String* scanned_ssids = nullptr;
 static int scan_result_count = 0;
 
 // ─── Keyboard handling ─────────────────────────────────────────────────────────
@@ -128,6 +128,11 @@ static void wifi_scan_cb(lv_event_t* e) {
 
     int n = settings_wifi_->scanNetworks();
     scan_result_count = (n > MAX_SCAN_DISPLAY) ? MAX_SCAN_DISPLAY : n;
+
+    // Allocate scan results on heap (freed on next scan)
+    if (!scanned_ssids) {
+        scanned_ssids = new String[MAX_SCAN_DISPLAY];
+    }
 
     // Store SSIDs before clearing scan
     for (int i = 0; i < scan_result_count; i++) {

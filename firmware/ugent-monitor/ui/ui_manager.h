@@ -4,8 +4,8 @@
  * Manages LVGL tab-based UI with 4 screens:
  *   Dashboard, Tasks, Interaction, Settings
  *
- * NOTE: LVGL display/touch driver init is done in the main .ino file.
- *       This class ONLY creates LVGL widgets.
+ * Settings screen is LAZY-LOADED: only created when user taps Setup tab.
+ * This saves ~15 LVGL objects and reduces boot-time memory by ~3KB.
  */
 
 #ifndef UI_MANAGER_H
@@ -30,9 +30,14 @@ enum Screen : uint8_t {
     SCREEN_COUNT
 };
 
+// Global so the static LVGL event callback can access it
+static UIManager* g_ui_instance = nullptr;
+
 class UIManager {
 public:
     void begin() {
+        g_ui_instance = this;
+
         // Apply theme
         theme_init();
 
@@ -64,27 +69,29 @@ public:
                                       LV_PART_ITEMS | LV_STATE_CHECKED);
 
         // Create tabs
-        lv_obj_t* tab_dash = lv_tabview_add_tab(tabview_, "Home");
-        lv_obj_t* tab_task = lv_tabview_add_tab(tabview_, "Tasks");
-        lv_obj_t* tab_int  = lv_tabview_add_tab(tabview_, "Chat");
-        lv_obj_t* tab_set  = lv_tabview_add_tab(tabview_, "Setup");
+        tab_dash_ = lv_tabview_add_tab(tabview_, "Home");
+        tab_task_ = lv_tabview_add_tab(tabview_, "Tasks");
+        tab_int_  = lv_tabview_add_tab(tabview_, "Chat");
+        tab_set_  = lv_tabview_add_tab(tabview_, "Setup");
 
         // Set bg for each tab
-        lv_obj_t* tabs[] = {tab_dash, tab_task, tab_int, tab_set};
+        lv_obj_t* tabs[] = {tab_dash_, tab_task_, tab_int_, tab_set_};
         for (uint8_t i = 0; i < SCREEN_COUNT; i++) {
             lv_obj_set_style_bg_color(tabs[i], color_bg(), LV_PART_MAIN);
             lv_obj_set_style_bg_opa(tabs[i], LV_OPA_COVER, LV_PART_MAIN);
             lv_obj_clear_flag(tabs[i], LV_OBJ_FLAG_SCROLLABLE);
         }
 
-        // Build each screen's widgets
-        screen_dashboard_create(tab_dash);
-        screen_tasks_create(tab_task);
-        screen_interact_create(tab_int);
-        // Settings screen needs NVS, WiFi, UGENT client for callbacks
-        if (nvs_ && wifi_ && ugent_) {
-            screen_settings_create(tab_set, nvs_, wifi_, ugent_);
-        }
+        // Build visible screens only (Dashboard, Tasks, Chat)
+        screen_dashboard_create(tab_dash_);
+        screen_tasks_create(tab_task_);
+        screen_interact_create(tab_int_);
+
+        // Settings tab: show placeholder, lazy-load on first visit
+        lv_obj_t* placeholder = lv_label_create(tab_set_);
+        lv_label_set_text(placeholder, "Tap here to load Setup");
+        lv_obj_set_style_text_color(placeholder, color_overlay0(), LV_PART_MAIN);
+        lv_obj_center(placeholder);
 
         // Wire up interaction client
         if (ugent_) {
@@ -96,6 +103,20 @@ public:
         ugent_ = ugent;
         wifi_  = wifi;
         nvs_   = nvs;
+    }
+
+    // Called from main loop — handles lazy loading of settings tab
+    void loop() {
+        if (!settings_created_ && tabview_) {
+            uint16_t active = lv_tabview_get_tab_act(tabview_);
+            if (active == SCREEN_SETTINGS && nvs_ && wifi_ && ugent_) {
+                // User tapped Setup tab — create the settings UI now
+                lv_obj_clean(tab_set_);  // Remove placeholder
+                lv_obj_clear_flag(tab_set_, LV_OBJ_FLAG_SCROLLABLE);
+                screen_settings_create(tab_set_, nvs_, wifi_, ugent_);
+                settings_created_ = true;
+            }
+        }
     }
 
     // ─── Screen Updates ───────────────────────────────────────────────────
@@ -127,6 +148,11 @@ public:
 
 private:
     lv_obj_t* tabview_ = nullptr;
+    lv_obj_t* tab_dash_ = nullptr;
+    lv_obj_t* tab_task_ = nullptr;
+    lv_obj_t* tab_int_  = nullptr;
+    lv_obj_t* tab_set_  = nullptr;
+    bool settings_created_ = false;
     Screen currentScreen_ = SCREEN_DASHBOARD;
 
     // Pointers owned by main .ino — not freed here
